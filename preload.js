@@ -11,3 +11,8 @@ contextBridge.exposeInMainWorld("gemini", {
 contextBridge.exposeInMainWorld("personality", {
   load: () => ipcRenderer.invoke("personality:read"),
 });
+
+// Load environment variables from the main process.
+contextBridge.exposeInMainWorld("env", {
+  getAll: () => ipcRenderer.invoke("env:getAll"),
+});

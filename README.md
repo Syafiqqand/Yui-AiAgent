@@ -29,12 +29,19 @@ npm install
 
 ### Configure API keys
 
-Open [renderer.js](renderer.js) and set:
+Copy the example file and fill in your keys:
 
+```bash
+copy .env.example .env
+```
+
+Then edit .env and set:
+
+- `GEMINI_API_KEY`
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID`
-- `GEMINI_API_KEY`
 
+The .env file is ignored by Git, so secrets will not be uploaded.
 You can also tweak the assistant personality in [personality.md](personality.md).
 
 ### Run

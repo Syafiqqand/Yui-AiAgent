@@ -379,21 +379,24 @@ if (videoA && videoB) {
 // -------------------------------------------------
 // ElevenLabs text-to-speech (TTS) configuration
 // -------------------------------------------------
-// Paste your ElevenLabs API key and Voice ID here.
-const ELEVENLABS_API_KEY = "PASTE_ELEVENLABS_API_KEY";
-const ELEVENLABS_VOICE_ID = "PASTE_ELEVENLABS_VOICE_ID";
+// API keys are loaded from .env via the main process.
 const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
 
 // -------------------------------------------------
 // Gemini configuration
 // -------------------------------------------------
-// Paste your Gemini API key here.
-const GEMINI_API_KEY = "PASTE_GEMINI_API_KEY";
+// API keys are loaded from .env via the main process.
 const GEMINI_MODEL_ID = "gemini-2.5-flash";
 const DEFAULT_PERSONALITY =
   "You are Yui, a friendly virtual AI assistant. Be warm, supportive, conversational, and slightly playful. Use clean plain text only. Avoid markdown formatting such as bold, italic, headings, or decorative lists. Keep responses natural and easy to understand.";
 let geminiSystemPrompt = DEFAULT_PERSONALITY;
 let personalityLoadPromise = null;
+let envLoadPromise = null;
+let envConfig = {
+  GEMINI_API_KEY: "",
+  ELEVENLABS_API_KEY: "",
+  ELEVENLABS_VOICE_ID: "",
+};
 
 const ttsForm = document.querySelector(".tts-form");
 const ttsInput = document.querySelector("#tts-input");
@@ -497,6 +500,38 @@ function ensurePersonalityLoaded() {
   return personalityLoadPromise;
 }
 
+// Load API keys from the main process env bridge.
+async function loadEnvConfig() {
+  if (!window.env?.getAll) {
+    console.warn("[Env] Bridge not available. API keys not loaded.");
+    return;
+  }
+
+  try {
+    const values = await window.env.getAll();
+    envConfig = {
+      GEMINI_API_KEY: values?.GEMINI_API_KEY || "",
+      ELEVENLABS_API_KEY: values?.ELEVENLABS_API_KEY || "",
+      ELEVENLABS_VOICE_ID: values?.ELEVENLABS_VOICE_ID || "",
+    };
+    console.log("[Env] Environment keys loaded.");
+  } catch (error) {
+    console.error("[Env] Failed to load environment keys:", error);
+  }
+}
+
+function ensureEnvLoaded() {
+  if (!envLoadPromise) {
+    envLoadPromise = loadEnvConfig();
+  }
+
+  return envLoadPromise;
+}
+
+function getEnvValue(key) {
+  return envConfig[key] || "";
+}
+
 function appendChatMessage(role, text) {
   if (!chatLog) {
     return;
@@ -535,10 +570,6 @@ function sanitizeResponse(text) {
   output = output.replace(/[ \t]+/g, " ");
 
   return output.trim();
-}
-
-function hasPlaceholder(value) {
-  return !value || value.startsWith("PASTE_");
 }
 
 function revokeAudioUrl() {
@@ -646,16 +677,17 @@ async function requestSpeech(text, sourceLabel) {
     return;
   }
 
-  if (
-    hasPlaceholder(ELEVENLABS_API_KEY) ||
-    hasPlaceholder(ELEVENLABS_VOICE_ID)
-  ) {
-    setStatus("Paste your ELEVENLABS_API_KEY and VOICE_ID in renderer.js.");
+  if (!window.axios) {
+    setStatus("Axios failed to load.");
     return;
   }
 
-  if (!window.axios) {
-    setStatus("Axios failed to load.");
+  await ensureEnvLoaded();
+  const elevenLabsKey = getEnvValue("ELEVENLABS_API_KEY");
+  const elevenLabsVoiceId = getEnvValue("ELEVENLABS_VOICE_ID");
+
+  if (!elevenLabsKey || !elevenLabsVoiceId) {
+    setStatus("Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env.");
     return;
   }
 
@@ -666,14 +698,14 @@ async function requestSpeech(text, sourceLabel) {
   console.log("[TTS] Request start.", {
     source: sourceLabel || "custom",
     textLength: text.length,
-    voiceId: ELEVENLABS_VOICE_ID,
+    voiceId: elevenLabsVoiceId,
     modelId: ELEVENLABS_MODEL_ID,
   });
   setStatus(`Generating voice${labelSuffix}...`);
 
   try {
     const response = await window.axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`,
       {
         text,
         model_id: ELEVENLABS_MODEL_ID,
@@ -684,7 +716,7 @@ async function requestSpeech(text, sourceLabel) {
       },
       {
         headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
+          "xi-api-key": elevenLabsKey,
           "Content-Type": "application/json",
           Accept: "audio/mpeg",
         },
@@ -734,13 +766,16 @@ async function requestGeminiResponse(userMessage) {
     return;
   }
 
-  if (hasPlaceholder(GEMINI_API_KEY)) {
-    setStatus("Paste your GEMINI_API_KEY in renderer.js.");
+  if (!window.gemini?.generateResponse) {
+    setStatus("Gemini bridge failed to load.");
     return;
   }
 
-  if (!window.gemini?.generateResponse) {
-    setStatus("Gemini bridge failed to load.");
+  await ensureEnvLoaded();
+  const geminiApiKey = getEnvValue("GEMINI_API_KEY");
+
+  if (!geminiApiKey) {
+    setStatus("Set GEMINI_API_KEY in .env.");
     return;
   }
 
@@ -755,7 +790,7 @@ async function requestGeminiResponse(userMessage) {
 
   try {
     const responseText = await window.gemini.generateResponse({
-      apiKey: GEMINI_API_KEY,
+      apiKey: geminiApiKey,
       model: GEMINI_MODEL_ID,
       systemPrompt: geminiSystemPrompt,
       history: chatHistory,
@@ -819,3 +854,4 @@ languageButtons.forEach((button) => {
 });
 
 ensurePersonalityLoaded();
+ensureEnvLoaded();

@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
 
+// Load environment variables from .env in the project root.
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
 // Create the main application window.
 function createWindow() {
   const win = new BrowserWindow({
@@ -50,7 +53,7 @@ ipcMain.handle("gemini:generateResponse", async (_event, payload = {}) => {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const generativeModel = genAI.getGenerativeModel({
-      model: model || "gemini-2.5-flash",
+      model: model || "gemini-1.5-flash",
       systemInstruction: systemPrompt || "",
     });
 
@@ -79,4 +82,13 @@ ipcMain.handle("personality:read", async () => {
     console.error("[Personality] Failed to load personality.md:", error);
     return "";
   }
+});
+
+// Provide only the env keys that the renderer needs.
+ipcMain.handle("env:getAll", async () => {
+  return {
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+    ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
+    ELEVENLABS_VOICE_ID: process.env.ELEVENLABS_VOICE_ID || "",
+  };
 });
