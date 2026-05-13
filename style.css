@@ -1,0 +1,173 @@
+/* Base layout and clean minimal background */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: #ffffff;
+  color: #111111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Centered stage for the VTuber idle video */
+.stage {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.idle-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  transition: opacity 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.idle-video.is-active {
+  opacity: 1;
+}
+
+.language-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 3;
+}
+
+.language-button {
+  width: 44px;
+  padding: 6px 0;
+  border: 1px solid #d4d4d4;
+  border-radius: 999px;
+  background: #f7f7f7;
+  color: #111111;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.language-button:hover {
+  background: #ffffff;
+  border-color: #bcbcbc;
+  transform: translateY(-1px);
+}
+
+.language-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+
+.controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 380px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2;
+}
+
+.chat-log {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #e2e2e2;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fbfbfb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-message {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #ededed;
+  color: #222222;
+  word-break: break-word;
+}
+
+.chat-message--user {
+  align-self: flex-end;
+  background: #f1f5ff;
+  border-color: #d9e3ff;
+}
+
+.chat-message--assistant {
+  align-self: flex-start;
+}
+
+.tts-form {
+  display: flex;
+  gap: 8px;
+}
+
+.tts-form input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #ffffff;
+  color: #111111;
+  outline: none;
+}
+
+.tts-form input:focus {
+  border-color: #b3b3b3;
+}
+
+.tts-form button {
+  padding: 10px 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: #f5f5f5;
+  color: #111111;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tts-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tts-status {
+  font-size: 12px;
+  color: #5a5a5a;
+  text-align: left;
+}

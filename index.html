@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI VTuber Assistant [YUI]</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Main stage for the idle animation videos -->
+    <main class="stage">
+      <video
+        class="idle-video idle-video--a"
+        autoplay
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+      <video
+        class="idle-video idle-video--b"
+        autoplay
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+    </main>
+
+    <!-- Language introduction buttons -->
+    <nav class="language-controls" aria-label="Language introductions">
+      <button class="language-button" type="button" data-lang="id">ID</button>
+      <button class="language-button" type="button" data-lang="en">EN</button>
+      <button class="language-button" type="button" data-lang="jp">JP</button>
+    </nav>
+
+    <!-- Simple text-to-speech controls -->
+    <section class="controls">
+      <div class="chat-log" id="chat-log" aria-live="polite"></div>
+      <form class="tts-form" autocomplete="off">
+        <input
+          id="tts-input"
+          type="text"
+          placeholder="Type a message"
+          aria-label="Chat message"
+        />
+        <button id="tts-button" type="submit">Send</button>
+      </form>
+      <p class="tts-status" id="tts-status">Ready.</p>
+    </section>
+
+    <!-- Axios is used for ElevenLabs API requests -->
+    <script src="node_modules/axios/dist/axios.min.js"></script>
+
+    <!-- Renderer script for UI logic -->
+    <script src="renderer.js"></script>
+  </body>
+</html>

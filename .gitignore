@@ -1,0 +1,41 @@
+# Node.js
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Electron build outputs
+dist/
+out/
+release/
+build/
+*.asar
+
+# Caches
+.cache/
+.parcel-cache/
+.vite/
+.electron/
+.electron-cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+*.env
+*.local
+*.key
+*.pem
+
+# Generated audio
+*.mp3
+*.wav
+*.ogg
+
+# Coverage
+coverage/
