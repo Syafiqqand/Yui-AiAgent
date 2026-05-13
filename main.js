@@ -39,41 +39,57 @@ app.on("activate", () => {
   }
 });
 
-// Gemini requests are handled in the main process to avoid preload failures.
-ipcMain.handle("gemini:generateResponse", async (_event, payload = {}) => {
+// Groq requests are handled in the main process to avoid preload failures.
+ipcMain.handle("groq:generateResponse", async (_event, payload = {}) => {
   const { apiKey, model, systemPrompt, history, message } = payload;
 
   try {
     if (!apiKey) {
-      throw new Error("Missing Gemini API key.");
+      throw new Error("Missing Groq API key.");
     }
 
-    // Load the SDK here so preload stays lightweight and safe.
-    const { GoogleGenerativeAI } = require("@google/generative-ai");
+    // Load the Groq SDK here so preload stays lightweight and safe.
+    const Groq = require("groq-sdk");
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const generativeModel = genAI.getGenerativeModel({
-      model: model || "gemini-1.5-flash",
-      systemInstruction: systemPrompt || "",
-    });
+    const groq = new Groq({ apiKey });
 
-    const chat = generativeModel.startChat({
-      history: Array.isArray(history) ? history : [],
-    });
+    // Build the messages array for the Groq chat completion.
+    // System prompt goes first, then conversation history, then user message.
+    const messages = [];
 
-    const result = await chat.sendMessage(message || "");
-    if (!result?.response?.text) {
-      return "";
+    // Add system prompt as the first message.
+    if (systemPrompt) {
+      messages.push({ role: "system", content: systemPrompt });
     }
 
-    return result.response.text();
+    // Append conversation history.
+    // History uses { role, content } format matching OpenAI/Groq convention.
+    if (Array.isArray(history)) {
+      messages.push(...history);
+    }
+
+    // Append the new user message.
+    if (message) {
+      messages.push({ role: "user", content: message });
+    }
+
+    // Send the chat completion request to Groq.
+    const chatCompletion = await groq.chat.completions.create({
+      messages,
+      model: model || "llama-3.1-8b-instant",
+    });
+
+    // Extract the response text from the first choice.
+    const responseText = chatCompletion?.choices?.[0]?.message?.content || "";
+
+    return responseText;
   } catch (error) {
-    console.error("[Gemini] Main process error:", error);
+    console.error("[Groq] Main process error:", error);
     throw error;
   }
 });
 
-// Load personality.md for the Gemini system prompt.
+// Load personality.md for the AI system prompt.
 ipcMain.handle("personality:read", async () => {
   try {
     const filePath = path.join(__dirname, "personality.md");
@@ -87,7 +103,7 @@ ipcMain.handle("personality:read", async () => {
 // Provide only the env keys that the renderer needs.
 ipcMain.handle("env:getAll", async () => {
   return {
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY || "",
+    GROQ_API_KEY: process.env.GROQ_API_KEY || "",
     ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
     ELEVENLABS_VOICE_ID: process.env.ELEVENLABS_VOICE_ID || "",
   };

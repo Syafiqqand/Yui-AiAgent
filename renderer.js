@@ -383,17 +383,17 @@ if (videoA && videoB) {
 const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
 
 // -------------------------------------------------
-// Gemini configuration
+// Groq configuration
 // -------------------------------------------------
 // API keys are loaded from .env via the main process.
-const GEMINI_MODEL_ID = "gemini-2.5-flash";
+const GROQ_MODEL_ID = "llama-3.3-70b-versatile";
 const DEFAULT_PERSONALITY =
   "You are Yui, a friendly virtual AI assistant. Be warm, supportive, conversational, and slightly playful. Use clean plain text only. Avoid markdown formatting such as bold, italic, headings, or decorative lists. Keep responses natural and easy to understand.";
-let geminiSystemPrompt = DEFAULT_PERSONALITY;
+let systemPrompt = DEFAULT_PERSONALITY;
 let personalityLoadPromise = null;
 let envLoadPromise = null;
 let envConfig = {
-  GEMINI_API_KEY: "",
+  GROQ_API_KEY: "",
   ELEVENLABS_API_KEY: "",
   ELEVENLABS_VOICE_ID: "",
 };
@@ -482,7 +482,7 @@ async function loadPersonalityPrompt() {
   try {
     const text = await window.personality.load();
     if (text && text.trim()) {
-      geminiSystemPrompt = text.trim();
+      systemPrompt = text.trim();
       console.log("[Personality] personality.md loaded.");
     } else {
       console.warn("[Personality] personality.md is empty. Using default.");
@@ -510,7 +510,7 @@ async function loadEnvConfig() {
   try {
     const values = await window.env.getAll();
     envConfig = {
-      GEMINI_API_KEY: values?.GEMINI_API_KEY || "",
+      GROQ_API_KEY: values?.GROQ_API_KEY || "",
       ELEVENLABS_API_KEY: values?.ELEVENLABS_API_KEY || "",
       ELEVENLABS_VOICE_ID: values?.ELEVENLABS_VOICE_ID || "",
     };
@@ -754,8 +754,8 @@ async function requestSpeech(text, sourceLabel) {
   }
 }
 
-// Send a chat message to Gemini and speak the response.
-async function requestGeminiResponse(userMessage) {
+// Send a chat message to Groq and speak the response.
+async function requestGroqResponse(userMessage) {
   if (isUiBusy()) {
     setStatus("Busy. Please wait...");
     return;
@@ -766,33 +766,33 @@ async function requestGeminiResponse(userMessage) {
     return;
   }
 
-  if (!window.gemini?.generateResponse) {
-    setStatus("Gemini bridge failed to load.");
+  if (!window.groq?.generateResponse) {
+    setStatus("Groq bridge failed to load.");
     return;
   }
 
   await ensureEnvLoaded();
-  const geminiApiKey = getEnvValue("GEMINI_API_KEY");
+  const groqApiKey = getEnvValue("GROQ_API_KEY");
 
-  if (!geminiApiKey) {
-    setStatus("Set GEMINI_API_KEY in .env.");
+  if (!groqApiKey) {
+    setStatus("Set GROQ_API_KEY in .env.");
     return;
   }
 
   appendChatMessage("user", userMessage);
   setChatBusy(true);
   await ensurePersonalityLoaded();
-  console.log("[Gemini] Request start.", {
+  console.log("[Groq] Request start.", {
     textLength: userMessage.length,
-    model: GEMINI_MODEL_ID,
+    model: GROQ_MODEL_ID,
   });
   setStatus("Thinking...");
 
   try {
-    const responseText = await window.gemini.generateResponse({
-      apiKey: geminiApiKey,
-      model: GEMINI_MODEL_ID,
-      systemPrompt: geminiSystemPrompt,
+    const responseText = await window.groq.generateResponse({
+      apiKey: groqApiKey,
+      model: GROQ_MODEL_ID,
+      systemPrompt: systemPrompt,
       history: chatHistory,
       message: userMessage,
     });
@@ -801,20 +801,22 @@ async function requestGeminiResponse(userMessage) {
     const cleanResponse =
       sanitizedResponse.trim() || "Sorry, I had trouble responding just now.";
 
-    console.log("[Gemini] Response received.", {
+    console.log("[Groq] Response received.", {
       chars: cleanResponse.length,
     });
     appendChatMessage("assistant", cleanResponse);
+
+    // Groq uses OpenAI-compatible format: { role, content }.
     chatHistory.push(
-      { role: "user", parts: [{ text: userMessage }] },
-      { role: "model", parts: [{ text: cleanResponse }] },
+      { role: "user", content: userMessage },
+      { role: "assistant", content: cleanResponse },
     );
 
     setChatBusy(false);
-    await requestSpeech(cleanResponse, "Gemini");
+    await requestSpeech(cleanResponse, "Groq");
   } catch (error) {
-    console.error("[Gemini] Request failed.", error);
-    setStatus("Gemini request failed. Check the console for details.");
+    console.error("[Groq] Request failed.", error);
+    setStatus("Groq request failed. Check the console for details.");
     setChatBusy(false);
   }
 }
@@ -828,7 +830,7 @@ async function handleTtsSubmit(event) {
 
   const text = ttsInput.value.trim();
   ttsInput.value = "";
-  await requestGeminiResponse(text);
+  await requestGroqResponse(text);
 }
 
 // Handle language button presses for preset introductions.

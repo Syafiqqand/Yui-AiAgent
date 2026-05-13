@@ -1,10 +1,10 @@
 # Yui-AiAgent
 
-Yui-AiAgent is an Electron-based VTuber AI assistant with Gemini chat, ElevenLabs TTS, and smooth idle/speaking animations. It is designed as a beginner-friendly desktop companion with a clean portrait layout.
+Yui-AiAgent is an Electron-based VTuber AI assistant with Groq AI chat (LLaMA 3.3), ElevenLabs TTS, and smooth idle/speaking animations. It is designed as a beginner-friendly desktop companion with a clean portrait layout.
 
 ## Features
 
-- Gemini AI chat responses
+- Groq AI chat responses (LLaMA 3.3 70B)
 - ElevenLabs text-to-speech playback
 - VTuber idle and speaking animations with smooth transitions
 - Minimal portrait UI for desktop use
@@ -19,7 +19,7 @@ Add screenshots here.
 
 - Node.js 18+ recommended
 - An ElevenLabs API key and Voice ID
-- A Gemini API key
+- A Groq API key
 
 ### Install
 
@@ -37,7 +37,7 @@ copy .env.example .env
 
 Then edit .env and set:
 
-- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID`
 
@@ -55,12 +55,12 @@ npm start
 - Electron
 - JavaScript, HTML, CSS
 - ElevenLabs API (TTS)
-- Google Gemini API (chat)
+- Groq API with LLaMA 3.3 (chat)
 - Axios
 
 ## Current Features
 
-- Gemini AI chat
+- Groq AI chat
 - ElevenLabs TTS
 - VTuber idle/speaking animations
 - Electron desktop app
