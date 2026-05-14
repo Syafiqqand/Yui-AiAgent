@@ -5,6 +5,8 @@ const fs = require("fs/promises");
 // Load environment variables from .env in the project root.
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
+const DEFAULT_KOKORO_TTS_URL = "http://127.0.0.1:5005/tts";
+
 // Create the main application window.
 function createWindow() {
   const win = new BrowserWindow({
@@ -104,7 +106,51 @@ ipcMain.handle("personality:read", async () => {
 ipcMain.handle("env:getAll", async () => {
   return {
     GROQ_API_KEY: process.env.GROQ_API_KEY || "",
-    ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY || "",
-    ELEVENLABS_VOICE_ID: process.env.ELEVENLABS_VOICE_ID || "",
+    KOKORO_TTS_URL: process.env.KOKORO_TTS_URL || DEFAULT_KOKORO_TTS_URL,
   };
+});
+
+// Kokoro local TTS handler.
+// Expects a local TTS server that returns WAV audio bytes.
+ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
+  const { text, voice = "af_heart", speed = 1.0 } = payload;
+
+  try {
+    if (!text || typeof text !== "string") {
+      throw new Error("[Kokoro TTS] No text provided.");
+    }
+
+    const endpoint = process.env.KOKORO_TTS_URL || DEFAULT_KOKORO_TTS_URL;
+    console.log("[Kokoro TTS] Synthesizing locally.", {
+      textLength: text.length,
+      voice,
+      speed,
+    });
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "audio/wav",
+      },
+      body: JSON.stringify({ text, voice, speed }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(
+        `[Kokoro TTS] Server returned ${response.status}: ${errorBody || response.statusText}`,
+      );
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    console.log("[Kokoro TTS] Audio ready.", { bytes: audioBuffer.length });
+
+    // Convert Buffer to a plain array so it can travel over Electron IPC.
+    // The renderer reconstructs it as a Uint8Array for audio playback.
+    return Array.from(audioBuffer);
+  } catch (error) {
+    console.error("[Kokoro TTS] Synthesis failed:", error);
+    throw error;
+  }
 });

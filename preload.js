@@ -16,3 +16,8 @@ contextBridge.exposeInMainWorld("personality", {
 contextBridge.exposeInMainWorld("env", {
   getAll: () => ipcRenderer.invoke("env:getAll"),
 });
+
+// Local Kokoro TTS bridge.
+contextBridge.exposeInMainWorld("kokoroTts", {
+  synthesize: (payload) => ipcRenderer.invoke("tts:kokoroSynthesize", payload),
+});

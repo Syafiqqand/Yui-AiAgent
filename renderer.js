@@ -350,6 +350,9 @@ function startSpeaking() {
   mode = "speaking";
   const firstSpeak = pickSpeakingKey();
   beginTransitionToClip(firstSpeak, { force: true });
+
+  // Stop idle ambience immediately when speaking begins.
+  stopIdleAmbience();
 }
 
 // Return to idle mode after speaking finishes.
@@ -360,6 +363,9 @@ function stopSpeaking() {
 
   mode = "idle";
   beginTransitionToClip("idle-main", { force: true });
+
+  // Resume idle ambience once speaking is done.
+  scheduleNextIdleAmbience();
 }
 
 preloadVideos();
@@ -377,10 +383,125 @@ if (videoA && videoB) {
 }
 
 // -------------------------------------------------
-// ElevenLabs text-to-speech (TTS) configuration
+// Idle ambience system
 // -------------------------------------------------
-// API keys are loaded from .env via the main process.
-const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
+// Plays very soft, infrequent idle sounds to make the assistant
+// feel quietly alive during idle states. Not speech — just subtle
+// breathing, hums, and ambient vocal presence.
+
+// Volume level — keep this very low so it stays non-intrusive.
+const IDLE_AMBIENCE_VOLUME = 0.15;
+
+// Random interval range between idle sounds (in milliseconds).
+const IDLE_AMBIENCE_MIN_MS = 15000; // 15 seconds
+const IDLE_AMBIENCE_MAX_MS = 40000; // 40 seconds
+
+// Sound pools per idle clip state.
+// Each state maps to the files most appropriate for that vibe.
+// If a file doesn't exist yet, playback fails silently.
+const idleSoundMap = {
+  "idle-main": [
+    "assets/audio/idle/breathe-1.mp3",
+    "assets/audio/idle/breathe-2.mp3",
+  ],
+  "idle-1": [
+    "assets/audio/idle/hum-1.mp3",
+    "assets/audio/idle/breathe-1.mp3",
+  ],
+  "idle-2": [
+    "assets/audio/idle/breathe-2.mp3",
+    "assets/audio/idle/hum-2.mp3",
+  ],
+  "idle-3": [
+    "assets/audio/idle/breathe-1.mp3",
+    "assets/audio/idle/breathe-2.mp3",
+  ],
+};
+
+// Fallback pool used if no specific state mapping is found.
+const idleSoundFallback = [
+  "assets/audio/idle/breathe-1.mp3",
+  "assets/audio/idle/breathe-2.mp3",
+  "assets/audio/idle/hum-1.mp3",
+  "assets/audio/idle/hum-2.mp3",
+];
+
+// Dedicated audio element for idle ambience.
+// Separate from the main TTS player so they never interfere.
+const idleAmbiencePlayer = new Audio();
+idleAmbiencePlayer.volume = IDLE_AMBIENCE_VOLUME;
+
+let idleAmbienceTimer = null;
+
+// Pick a sound file based on the current idle clip state.
+function pickIdleSound() {
+  const currentClipKey = activeVideo?.dataset.clipKey || "idle-main";
+  const pool = idleSoundMap[currentClipKey];
+
+  // Use the state-specific pool if available, otherwise use the fallback.
+  const soundPool = pool && pool.length > 0 ? pool : idleSoundFallback;
+  const index = Math.floor(Math.random() * soundPool.length);
+  return soundPool[index];
+}
+
+// Play a single idle ambience sound.
+// Does nothing if currently speaking.
+function playIdleAmbience() {
+  if (mode === "speaking") {
+    return;
+  }
+
+  const src = pickIdleSound();
+  idleAmbiencePlayer.src = src;
+  idleAmbiencePlayer.volume = IDLE_AMBIENCE_VOLUME;
+  idleAmbiencePlayer.currentTime = 0;
+
+  // Fail silently if the file doesn't exist — no errors shown to user.
+  idleAmbiencePlayer.play().catch(() => {});
+}
+
+// Schedule the next idle ambience sound at a random interval.
+// This is the main loop — it re-schedules itself after each sound.
+function scheduleNextIdleAmbience() {
+  // Clear any existing timer before setting a new one.
+  clearTimeout(idleAmbienceTimer);
+
+  // Don't schedule if currently in speaking mode.
+  if (mode === "speaking") {
+    return;
+  }
+
+  // Pick a random delay between the min and max interval.
+  const range = IDLE_AMBIENCE_MAX_MS - IDLE_AMBIENCE_MIN_MS;
+  const delay = IDLE_AMBIENCE_MIN_MS + Math.random() * range;
+
+  idleAmbienceTimer = setTimeout(() => {
+    playIdleAmbience();
+
+    // Schedule the next sound after this one finishes.
+    // Use the audio duration + a small buffer if available,
+    // otherwise just move straight to rescheduling.
+    const playbackDuration =
+      Number.isFinite(idleAmbiencePlayer.duration)
+        ? idleAmbiencePlayer.duration * 1000 + 500
+        : 0;
+
+    setTimeout(scheduleNextIdleAmbience, playbackDuration);
+  }, delay);
+}
+
+// Stop any active idle ambience and clear the pending timer.
+// Called when speaking begins.
+function stopIdleAmbience() {
+  clearTimeout(idleAmbienceTimer);
+  idleAmbienceTimer = null;
+  idleAmbiencePlayer.pause();
+  idleAmbiencePlayer.currentTime = 0;
+}
+
+// Start the idle ambience loop after a short initial delay.
+// The delay gives the app time to finish loading before anything plays.
+setTimeout(scheduleNextIdleAmbience, 5000);
 
 // -------------------------------------------------
 // Groq configuration
@@ -394,8 +515,7 @@ let personalityLoadPromise = null;
 let envLoadPromise = null;
 let envConfig = {
   GROQ_API_KEY: "",
-  ELEVENLABS_API_KEY: "",
-  ELEVENLABS_VOICE_ID: "",
+  KOKORO_TTS_URL: "",
 };
 
 const ttsForm = document.querySelector(".tts-form");
@@ -511,8 +631,7 @@ async function loadEnvConfig() {
     const values = await window.env.getAll();
     envConfig = {
       GROQ_API_KEY: values?.GROQ_API_KEY || "",
-      ELEVENLABS_API_KEY: values?.ELEVENLABS_API_KEY || "",
-      ELEVENLABS_VOICE_ID: values?.ELEVENLABS_VOICE_ID || "",
+      KOKORO_TTS_URL: values?.KOKORO_TTS_URL || "",
     };
     console.log("[Env] Environment keys loaded.");
   } catch (error) {
@@ -600,72 +719,46 @@ audioPlayer.addEventListener("play", () => {
   startSpeaking();
 });
 
-function decodeArrayBuffer(data) {
-  try {
-    const decoder = new TextDecoder("utf-8");
-    return decoder.decode(new Uint8Array(data));
-  } catch (error) {
-    return "";
-  }
+// -------------------------------------------------
+// Helper: play an ArrayBuffer as audio.
+// -------------------------------------------------
+async function playAudioBuffer(arrayBuffer, mimeType = "audio/wav") {
+  const audioBlob = new Blob([arrayBuffer], { type: mimeType });
+  revokeAudioUrl();
+  currentAudioUrl = URL.createObjectURL(audioBlob);
+
+  audioPlayer.pause();
+  audioPlayer.src = currentAudioUrl;
+  audioPlayer.currentTime = 0;
+  await audioPlayer.play();
+  setStatus("Playing...");
 }
 
-function extractApiMessage(payload) {
-  if (!payload || typeof payload !== "object") {
-    return "";
+// -------------------------------------------------
+// Primary TTS: local Kokoro
+// -------------------------------------------------
+async function tryKokoroTts(text) {
+  if (!window.kokoroTts?.synthesize) {
+    throw new Error("[Kokoro TTS] Bridge not available.");
   }
 
-  if (payload.detail?.message) {
-    return payload.detail.message;
-  }
+  console.log("[Using Kokoro local TTS]", { textLength: text.length });
 
-  if (payload.message) {
-    return payload.message;
-  }
+  const rawArray = await window.kokoroTts.synthesize({
+    text,
+    voice: "af_heart",
+    speed: 1.0,
+  });
 
-  if (payload.error) {
-    return payload.error;
-  }
-
-  return "";
+  const uint8 = new Uint8Array(rawArray);
+  console.log("[Kokoro TTS] Audio received.", { bytes: uint8.byteLength });
+  return uint8.buffer;
 }
 
-function getAxiosErrorDetails(error) {
-  const status = error?.response?.status;
-  const rawData = error?.response?.data;
-
-  let bodyText = "";
-  let apiMessage = "";
-
-  if (rawData instanceof ArrayBuffer) {
-    bodyText = decodeArrayBuffer(rawData);
-  } else if (typeof rawData === "string") {
-    bodyText = rawData;
-  } else if (rawData && typeof rawData === "object") {
-    bodyText = JSON.stringify(rawData);
-  }
-
-  if (bodyText) {
-    try {
-      const parsed = JSON.parse(bodyText);
-      apiMessage = extractApiMessage(parsed);
-      bodyText = JSON.stringify(parsed);
-    } catch (parseError) {
-      apiMessage = "";
-    }
-  }
-
-  if (!apiMessage) {
-    apiMessage = error?.message || "Request failed";
-  }
-
-  return {
-    status,
-    bodyText: bodyText || "(no response body)",
-    apiMessage,
-  };
-}
-
-// Send a TTS request and play the resulting audio.
+// -------------------------------------------------
+// Main TTS entry point.
+// Uses Kokoro local TTS only.
+// -------------------------------------------------
 async function requestSpeech(text, sourceLabel) {
   if (isUiBusy()) {
     setStatus("Busy. Please wait...");
@@ -677,78 +770,18 @@ async function requestSpeech(text, sourceLabel) {
     return;
   }
 
-  if (!window.axios) {
-    setStatus("Axios failed to load.");
-    return;
-  }
-
-  await ensureEnvLoaded();
-  const elevenLabsKey = getEnvValue("ELEVENLABS_API_KEY");
-  const elevenLabsVoiceId = getEnvValue("ELEVENLABS_VOICE_ID");
-
-  if (!elevenLabsKey || !elevenLabsVoiceId) {
-    setStatus("Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env.");
-    return;
-  }
-
   setTtsBusy(true);
   startSpeaking();
 
   const labelSuffix = sourceLabel ? ` (${sourceLabel})` : "";
-  console.log("[TTS] Request start.", {
-    source: sourceLabel || "custom",
-    textLength: text.length,
-    voiceId: elevenLabsVoiceId,
-    modelId: ELEVENLABS_MODEL_ID,
-  });
-  setStatus(`Generating voice${labelSuffix}...`);
+  setStatus(`Generating local voice${labelSuffix}...`);
 
   try {
-    const response = await window.axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsVoiceId}`,
-      {
-        text,
-        model_id: ELEVENLABS_MODEL_ID,
-        voice_settings: {
-          stability: 0.4,
-          similarity_boost: 0.6,
-        },
-      },
-      {
-        headers: {
-          "xi-api-key": elevenLabsKey,
-          "Content-Type": "application/json",
-          Accept: "audio/mpeg",
-        },
-        responseType: "arraybuffer",
-      },
-    );
-
-    console.log("[TTS] Request success.", {
-      status: response.status,
-    });
-    console.log("[TTS] Audio received.", {
-      bytes: response.data?.byteLength,
-    });
-
-    const audioBlob = new Blob([response.data], { type: "audio/mpeg" });
-    revokeAudioUrl();
-    currentAudioUrl = URL.createObjectURL(audioBlob);
-
-    audioPlayer.pause();
-    audioPlayer.src = currentAudioUrl;
-    audioPlayer.currentTime = 0;
-    await audioPlayer.play();
-    setStatus("Playing...");
+    const audioData = await tryKokoroTts(text);
+    await playAudioBuffer(audioData, "audio/wav");
   } catch (error) {
-    const details = getAxiosErrorDetails(error);
-    console.error("[TTS] Request failed.", error);
-    console.error("[TTS] Full error response:", error?.response || error);
-    console.error("[TTS] Error details:", details);
-
-    setStatus(
-      `Error ${details.status || "Unknown"}: ${details.apiMessage} | Body: ${details.bodyText}`,
-    );
+    console.error("[Kokoro TTS] Failed:", error);
+    setStatus("Kokoro TTS unavailable. Check the local TTS server.");
     stopSpeaking();
     setTtsBusy(false);
   }

@@ -6,6 +6,22 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Python / local TTS
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+**/.venv/
+venv/
+env/
+local-tts/.venv/
+local-tts/.venv/**
+local-tts/output/
+local-tts/cache/
+local-tts/test_output_*.wav
+local-tts/curl_test.wav
+
 # Electron build outputs
 dist/
 out/
@@ -24,18 +40,17 @@ build/
 .DS_Store
 Thumbs.db
 
+# Editor files
+.vscode/
+
 # Env / secrets
 .env
+.env.local
 .env.*
 *.env
 *.local
 *.key
 *.pem
-
-# Generated audio
-*.mp3
-*.wav
-*.ogg
 
 # Coverage
 coverage/
