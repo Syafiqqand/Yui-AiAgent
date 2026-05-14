@@ -17,7 +17,11 @@ venv/
 env/
 local-tts/.venv/
 local-tts/.venv/**
+local-tts/models/
+local-tts/refs/
 local-tts/output/
+local-tts/*.wav
+local-tts/output/*.wav
 local-tts/cache/
 local-tts/test_output_*.wav
 local-tts/curl_test.wav
