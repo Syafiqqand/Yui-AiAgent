@@ -4,7 +4,10 @@
   "description": "",
   "main": "main.js",
   "scripts": {
+    "dev": "electron .",
     "start": "electron .",
+    "start:text": "electron .",
+    "start:voice": "start-yui-voice.bat",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

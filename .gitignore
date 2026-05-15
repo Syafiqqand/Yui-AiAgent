@@ -26,6 +26,14 @@ local-tts/cache/
 local-tts/test_output_*.wav
 local-tts/curl_test.wav
 
+# Generated audio by default; keep selected production idle voices trackable.
+**/*.wav
+**/*.mp3
+!assets/voices/
+!assets/voices/**
+!assets/voices/idle/
+!assets/voices/idle/**
+
 # Electron build outputs
 dist/
 out/
@@ -51,6 +59,7 @@ Thumbs.db
 .env
 .env.local
 .env.*
+!.env.example
 *.env
 *.local
 *.key

@@ -5,7 +5,181 @@ const fs = require("fs/promises");
 // Load environment variables from .env in the project root.
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const DEFAULT_KOKORO_TTS_URL = "http://127.0.0.1:5005/tts";
+const DEFAULT_TTS_CONFIG = {
+  enabled: false,
+  engine: "kokoro",
+  serverUrl: "http://127.0.0.1:5005",
+  fallbackToTextOnly: true,
+};
+
+const DEFAULT_THINKING_CONFIG = {
+  enabled: true,
+  message: "Thinking...",
+  animations: ["thinking-1", "thinking-2"],
+  animationDurationMs: 5000,
+};
+
+const TTS_OUTPUT_DIR = path.resolve(__dirname, "local-tts", "output");
+const TTS_OUTPUT_MAX_AGE_MS = 60 * 60 * 1000;
+
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+function normalizeServerUrl(url) {
+  const serverUrl = String(url || DEFAULT_TTS_CONFIG.serverUrl).trim();
+  return serverUrl.replace(/\/tts\/?$/, "").replace(/\/$/, "");
+}
+
+function buildTtsUrl(serverUrl, endpointPath) {
+  return `${normalizeServerUrl(serverUrl)}${endpointPath}`;
+}
+
+function buildLocalTtsOutputPath(filename) {
+  if (!filename) {
+    return "";
+  }
+
+  return path.join(TTS_OUTPUT_DIR, path.basename(filename));
+}
+
+function isPathInsideTtsOutput(targetPath) {
+  const resolvedOutputDir = path.resolve(TTS_OUTPUT_DIR);
+  const resolvedTarget = path.resolve(targetPath);
+  return resolvedTarget.startsWith(`${resolvedOutputDir}${path.sep}`);
+}
+
+function withTimeout(options = {}, timeoutMs = 1500) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  return {
+    options: { ...options, signal: controller.signal },
+    clear: () => clearTimeout(timeout),
+  };
+}
+
+async function loadAppConfig() {
+  const configPath = path.join(__dirname, "config", "app-config.json");
+  let fileConfig = {};
+
+  try {
+    const rawConfig = await fs.readFile(configPath, "utf-8");
+    fileConfig = JSON.parse(rawConfig);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn("[Config] Failed to read app-config.json:", error);
+    }
+  }
+
+  const fileTts = fileConfig.tts || {};
+  const fileThinking = fileConfig.thinking || {};
+  const envServerUrl = process.env.KOKORO_TTS_SERVER_URL || process.env.KOKORO_TTS_URL;
+
+  return {
+    tts: {
+      enabled: parseBoolean(process.env.TTS_ENABLED, fileTts.enabled ?? DEFAULT_TTS_CONFIG.enabled),
+      engine: "kokoro",
+      serverUrl: normalizeServerUrl(envServerUrl || fileTts.serverUrl || DEFAULT_TTS_CONFIG.serverUrl),
+      fallbackToTextOnly: parseBoolean(
+        process.env.TTS_FALLBACK_TO_TEXT_ONLY,
+        fileTts.fallbackToTextOnly ?? DEFAULT_TTS_CONFIG.fallbackToTextOnly,
+      ),
+    },
+    thinking: {
+      ...DEFAULT_THINKING_CONFIG,
+      ...fileThinking,
+      animations: Array.isArray(fileThinking.animations)
+        ? fileThinking.animations
+        : DEFAULT_THINKING_CONFIG.animations,
+    },
+  };
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const request = withTimeout(options, timeoutMs);
+
+  try {
+    return await fetch(url, request.options);
+  } finally {
+    request.clear();
+  }
+}
+
+async function deleteTempTtsOutputFile(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") {
+    return { deleted: false, reason: "missing-path" };
+  }
+
+  const targetPath = path.resolve(inputPath);
+  const outputDirPath = path.resolve(TTS_OUTPUT_DIR);
+
+  if (!isPathInsideTtsOutput(targetPath)) {
+    console.warn("[TTS] refused to delete path outside output dir", targetPath);
+    return { deleted: false, reason: "outside-output-dir" };
+  }
+
+  try {
+    const outputDirRealPath = await fs.realpath(outputDirPath);
+    const targetRealPath = await fs.realpath(targetPath);
+    if (!targetRealPath.startsWith(`${outputDirRealPath}${path.sep}`)) {
+      console.warn("[TTS] refused to delete path outside output dir", targetRealPath);
+      return { deleted: false, reason: "outside-output-dir" };
+    }
+
+    await fs.unlink(targetPath);
+    console.log("[TTS] deleted temp output:", targetPath);
+    return { deleted: true };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      console.log("[TTS] temp output already missing:", targetPath);
+      return { deleted: false, missing: true };
+    }
+
+    console.warn("[TTS] failed to delete temp output:", targetPath, error);
+    return { deleted: false, reason: error.message };
+  }
+}
+
+async function cleanupOldTtsOutputFiles() {
+  let deletedCount = 0;
+
+  try {
+    const entries = await fs.readdir(TTS_OUTPUT_DIR, { withFileTypes: true });
+    const now = Date.now();
+
+    for (const entry of entries) {
+      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".wav") {
+        continue;
+      }
+
+      const targetPath = path.join(TTS_OUTPUT_DIR, entry.name);
+      if (!isPathInsideTtsOutput(targetPath)) {
+        continue;
+      }
+
+      const stat = await fs.stat(targetPath);
+      if (now - stat.mtimeMs <= TTS_OUTPUT_MAX_AGE_MS) {
+        continue;
+      }
+
+      const result = await deleteTempTtsOutputFile(targetPath);
+      if (result.deleted) {
+        deletedCount += 1;
+      }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.warn("[TTS] cleanup old output files failed:", error);
+    }
+  }
+
+  console.log("[TTS] cleanup old output files:", deletedCount, "deleted");
+}
 
 // Create the main application window.
 function createWindow() {
@@ -25,7 +199,10 @@ function createWindow() {
 }
 
 // Initialize the app once Electron is ready.
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await cleanupOldTtsOutputFiles();
+  createWindow();
+});
 
 // Quit on all windows closed (except on macOS).
 app.on("window-all-closed", () => {
@@ -104,37 +281,63 @@ ipcMain.handle("personality:read", async () => {
 
 // Provide only the env keys that the renderer needs.
 ipcMain.handle("env:getAll", async () => {
+  const appConfig = await loadAppConfig();
+
   return {
     GROQ_API_KEY: process.env.GROQ_API_KEY || "",
-    KOKORO_TTS_URL: process.env.KOKORO_TTS_URL || DEFAULT_KOKORO_TTS_URL,
+    TTS_CONFIG: appConfig.tts,
+    THINKING_CONFIG: appConfig.thinking,
   };
 });
 
 // Kokoro local TTS handler.
 // Expects a local TTS server that returns WAV audio bytes.
 ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
-  const { text, voice = "af_heart", speed = 1.0 } = payload;
+  const {
+    text,
+    voice = "af_heart",
+    speed = 1.0,
+    language = "id",
+    engine = "kokoro",
+  } = payload;
 
   try {
     if (!text || typeof text !== "string") {
       throw new Error("[Kokoro TTS] No text provided.");
     }
 
-    const endpoint = process.env.KOKORO_TTS_URL || DEFAULT_KOKORO_TTS_URL;
+    const appConfig = await loadAppConfig();
+    const ttsConfig = appConfig.tts;
+
+    if (!ttsConfig.enabled) {
+      throw new Error("[Kokoro TTS] Realtime TTS is disabled.");
+    }
+
+    const healthUrl = buildTtsUrl(ttsConfig.serverUrl, "/health");
+    const endpoint = buildTtsUrl(ttsConfig.serverUrl, "/tts");
+
     console.log("[Kokoro TTS] Synthesizing locally.", {
       textLength: text.length,
       voice,
       speed,
+      language,
+      engine,
+      serverUrl: ttsConfig.serverUrl,
     });
 
-    const response = await fetch(endpoint, {
+    const healthResponse = await fetchWithTimeout(healthUrl, {}, 1500);
+    if (!healthResponse.ok) {
+      throw new Error(`[Kokoro TTS] Health check returned ${healthResponse.status}.`);
+    }
+
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "audio/wav",
       },
-      body: JSON.stringify({ text, voice, speed }),
-    });
+      body: JSON.stringify({ text, voice, speed, language, engine }),
+    }, 30000);
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
@@ -144,13 +347,32 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
     }
 
     const audioBuffer = Buffer.from(await response.arrayBuffer());
+    const outputFilename = response.headers.get("x-yui-tts-output-file") || "";
+    const tempOutputPath = buildLocalTtsOutputPath(outputFilename);
+
+    if (tempOutputPath) {
+      console.log("[TTS] generated output:", tempOutputPath);
+    }
+
     console.log("[Kokoro TTS] Audio ready.", { bytes: audioBuffer.length });
 
     // Convert Buffer to a plain array so it can travel over Electron IPC.
     // The renderer reconstructs it as a Uint8Array for audio playback.
-    return Array.from(audioBuffer);
+    return {
+      audioBytes: Array.from(audioBuffer),
+      tempOutputPath,
+    };
   } catch (error) {
-    console.error("[Kokoro TTS] Synthesis failed:", error);
+    console.warn("[Kokoro TTS] Synthesis unavailable:", error);
     throw error;
+  }
+});
+
+ipcMain.handle("tts:deleteOutputFile", async (_event, payload = {}) => {
+  try {
+    return await deleteTempTtsOutputFile(payload.path);
+  } catch (error) {
+    console.warn("[TTS] delete output handler failed:", error);
+    return { deleted: false, reason: error.message };
   }
 });

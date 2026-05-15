@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld("env", {
 // Local Kokoro TTS bridge.
 contextBridge.exposeInMainWorld("kokoroTts", {
   synthesize: (payload) => ipcRenderer.invoke("tts:kokoroSynthesize", payload),
+  deleteOutputFile: (payload) => ipcRenderer.invoke("tts:deleteOutputFile", payload),
 });

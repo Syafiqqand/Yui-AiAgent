@@ -46,7 +46,7 @@ body {
   opacity: 1;
 }
 
-.language-controls {
+.pose-controls {
   position: absolute;
   top: 16px;
   right: 16px;
@@ -56,16 +56,15 @@ body {
   z-index: 3;
 }
 
-.language-button {
-  width: 44px;
-  padding: 6px 0;
+.pose-button {
+  min-width: 76px;
+  padding: 7px 12px;
   border: 1px solid #d4d4d4;
   border-radius: 999px;
   background: #f7f7f7;
   color: #111111;
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-align: center;
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
   transition:
@@ -74,13 +73,13 @@ body {
     transform 140ms ease;
 }
 
-.language-button:hover {
+.pose-button:hover {
   background: #ffffff;
   border-color: #bcbcbc;
   transform: translateY(-1px);
 }
 
-.language-button:disabled {
+.pose-button:disabled {
   opacity: 0.55;
   cursor: default;
   transform: none;
@@ -123,12 +122,17 @@ body {
 
 .chat-message--user {
   align-self: flex-end;
-  background: #f1f5ff;
+  background: #f1f6ff;
   border-color: #d9e3ff;
 }
 
 .chat-message--assistant {
   align-self: flex-start;
+}
+
+.chat-message[data-loading="true"] {
+  color: #666666;
+  font-style: italic;
 }
 
 .tts-form {
@@ -155,7 +159,7 @@ body {
   padding: 10px 14px;
   border: 1px solid #d0d0d0;
   border-radius: 8px;
-  background: #f5f5f5;
+  background: #f6f6f6;
   color: #111111;
   font-size: 14px;
   cursor: pointer;

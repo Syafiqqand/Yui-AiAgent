@@ -1,0 +1,14 @@
+{
+  "tts": {
+    "enabled": true,
+    "engine": "kokoro",
+    "serverUrl": "http://127.0.0.1:5005",
+    "fallbackToTextOnly": true
+  },
+  "thinking": {
+    "enabled": true,
+    "message": "Yui is Thinking...",
+    "animations": ["thinking-1", "thinking-2"],
+    "animationDurationMs": 5000
+  }
+}

@@ -37,6 +37,41 @@ const clipConfig = {
     startDelay: 0.1,
     warmupSeconds: 0.1,
   },
+  "thinking-1": {
+    src: "assets/thinking-1.mp4",
+    trimStart: 0.08,
+    trimEnd: 0.08,
+    startDelay: 0.06,
+    warmupSeconds: 0.1,
+  },
+  "thinking-2": {
+    src: "assets/thinking-2.mp4",
+    trimStart: 0.08,
+    trimEnd: 0.08,
+    startDelay: 0.06,
+    warmupSeconds: 0.1,
+  },
+  "pose-1": {
+    src: "assets/pose-1.mp4",
+    trimStart: 0.08,
+    trimEnd: 0.08,
+    startDelay: 0.06,
+    warmupSeconds: 0.12,
+  },
+  "pose-2": {
+    src: "assets/pose-2.mp4",
+    trimStart: 0.08,
+    trimEnd: 0.08,
+    startDelay: 0.06,
+    warmupSeconds: 0.12,
+  },
+  "pose-3": {
+    src: "assets/pose-3.mp4",
+    trimStart: 0.08,
+    trimEnd: 0.08,
+    startDelay: 0.06,
+    warmupSeconds: 0.12,
+  },
   "idle-1": {
     src: "assets/idle-1.mp4",
     trimStart: 0.08,
@@ -62,6 +97,10 @@ const clipConfig = {
 
 const variationKeys = ["idle-1", "idle-2", "idle-3"];
 const speakingKeys = ["speak-1", "speak-2"];
+const THINKING_ANIMATIONS = ["thinking-1", "thinking-2"];
+const THINKING_ANIMATION_DURATION_MS = 5000;
+const POSE_ANIMATIONS = ["pose-1", "pose-2", "pose-3"];
+const POSE_ANIMATION_DURATION_MS = 5000;
 const crossfadeMs = 280;
 const overlapLeadSeconds = 0.3;
 
@@ -69,8 +108,16 @@ let activeVideo = videoA;
 let lastVariation = null;
 let lastSpeaking = null;
 let mode = "idle";
+let appState = "idle";
 let switchInProgress = false;
 let transitionToken = 0;
+let thinkingAnimationIndex = 0;
+let thinkingLoopRunning = false;
+let thinkingLoopPromise = null;
+let thinkingAnimationTimeout = null;
+let resolveThinkingWait = null;
+let isPoseAnimationPlaying = false;
+let poseAnimationRunId = 0;
 
 // Ensure video elements are always muted so only TTS audio is audible.
 function muteVideoElement(videoElement) {
@@ -137,6 +184,28 @@ function pickSpeakingKey() {
 
   lastSpeaking = choice;
   return choice;
+}
+
+function getThinkingAnimationKeys() {
+  const animations = envConfig?.thinking?.animations;
+  if (!Array.isArray(animations) || animations.length === 0) {
+    return THINKING_ANIMATIONS;
+  }
+
+  return animations.filter((animationKey) => getClip(animationKey));
+}
+
+function getThinkingAnimationDurationMs() {
+  const configuredDuration = Number(envConfig?.thinking?.animationDurationMs);
+  if (Number.isFinite(configuredDuration) && configuredDuration > 0) {
+    return configuredDuration;
+  }
+
+  return THINKING_ANIMATION_DURATION_MS;
+}
+
+function isTransientAnimationMode() {
+  return mode === "thinking" || mode === "pose";
 }
 
 // Decide the next clip in the idle -> variation -> idle loop.
@@ -247,6 +316,7 @@ function playPrepared(videoElement, clipKey) {
   videoElement.play().catch(() => {
     // Autoplay should work because the video is muted, but ignore failures.
   });
+
 }
 
 // Begin a stabilized transition to the next clip.
@@ -314,6 +384,10 @@ function trySmoothSwitch(event) {
     return;
   }
 
+  if (isTransientAnimationMode()) {
+    return;
+  }
+
   const clipKey = activeVideo.dataset.clipKey;
   const clip = getClip(clipKey);
   if (!clip) {
@@ -336,9 +410,256 @@ function handleVideoEnded(event) {
     return;
   }
 
+  if (isTransientAnimationMode()) {
+    return;
+  }
+
   const clipKey = activeVideo.dataset.clipKey || "idle-main";
   const nextClipKey = getNextClipKey(clipKey);
   beginTransitionToClip(nextClipKey);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function waitForThinkingDelay(ms) {
+  return new Promise((resolve) => {
+    resolveThinkingWait = resolve;
+    thinkingAnimationTimeout = window.setTimeout(() => {
+      thinkingAnimationTimeout = null;
+      resolveThinkingWait = null;
+      resolve();
+    }, ms);
+  });
+}
+
+function resolveThinkingDelay() {
+  if (thinkingAnimationTimeout) {
+    clearTimeout(thinkingAnimationTimeout);
+    thinkingAnimationTimeout = null;
+  }
+
+  if (resolveThinkingWait) {
+    const resolve = resolveThinkingWait;
+    resolveThinkingWait = null;
+    resolve();
+  }
+}
+
+function getActiveClipDurationMs(clipKey, fallbackMs) {
+  const clip = getClip(clipKey);
+
+  if (!clip || activeVideo?.dataset.clipKey !== clipKey) {
+    return fallbackMs;
+  }
+
+  const safeStart = getSafeStartTime(activeVideo, clip);
+  const safeEnd = getSafeEndTime(activeVideo, clip);
+  if (!Number.isFinite(safeStart) || !Number.isFinite(safeEnd)) {
+    return fallbackMs;
+  }
+
+  const durationMs = (safeEnd - safeStart) * 1000;
+  return durationMs > 500 ? durationMs : fallbackMs;
+}
+
+function getActiveThinkingClipDurationMs(clipKey) {
+  return getActiveClipDurationMs(clipKey, getThinkingAnimationDurationMs());
+}
+
+async function playThinkingAnimationAndWait(clipKey) {
+  console.log(`[Thinking] play ${clipKey}`);
+  beginTransitionToClip(clipKey, { force: true });
+
+  await wait(crossfadeMs + 250);
+
+  if (!thinkingLoopRunning || mode !== "thinking") {
+    return;
+  }
+
+  await waitForThinkingDelay(getActiveThinkingClipDurationMs(clipKey));
+  if (!thinkingLoopRunning || mode !== "thinking") {
+    return;
+  }
+
+  console.log(`[Thinking] finished ${clipKey}`);
+}
+
+function startThinkingAnimationLoop() {
+  if (thinkingLoopRunning) {
+    return thinkingLoopPromise;
+  }
+
+  const thinkingKeys = getThinkingAnimationKeys();
+  if (thinkingKeys.length === 0) {
+    console.warn("[Thinking] no thinking animation assets configured");
+    return null;
+  }
+
+  thinkingLoopRunning = true;
+  thinkingAnimationIndex = 0;
+
+  thinkingLoopPromise = (async () => {
+    try {
+      while (thinkingLoopRunning && mode === "thinking") {
+        const clipKey = thinkingKeys[thinkingAnimationIndex % thinkingKeys.length];
+        thinkingAnimationIndex += 1;
+        try {
+          await playThinkingAnimationAndWait(clipKey);
+        } catch (error) {
+          console.warn("[Thinking] motion failed:", clipKey, error);
+          await waitForThinkingDelay(getThinkingAnimationDurationMs());
+        }
+      }
+    } finally {
+      thinkingLoopRunning = false;
+      thinkingLoopPromise = null;
+      resolveThinkingDelay();
+
+      if (mode === "thinking") {
+        mode = "idle";
+        beginTransitionToClip("idle-main", { force: true });
+      }
+
+      console.log("[Thinking] stopped");
+    }
+  })();
+
+  return thinkingLoopPromise;
+}
+
+async function stopThinkingAnimationLoop() {
+  if (!thinkingLoopRunning && !thinkingLoopPromise) {
+    return;
+  }
+
+  console.log("[Thinking] stop requested");
+  thinkingLoopRunning = false;
+  resolveThinkingDelay();
+
+  if (thinkingLoopPromise) {
+    await thinkingLoopPromise;
+  }
+}
+
+function startThinkingState(nextState = "thinking") {
+  if (appState === "thinking" || appState === "preparing_voice" || thinkingLoopRunning) {
+    return;
+  }
+
+  appState = nextState;
+  console.log("[Thinking] start");
+  syncPoseButtonsEnabled();
+
+  if (getThinkingConfig().enabled === false) {
+    return;
+  }
+
+  mode = "thinking";
+  startThinkingAnimationLoop();
+}
+
+async function stopThinkingState() {
+  if (mode !== "thinking" && appState !== "thinking" && appState !== "preparing_voice") {
+    return;
+  }
+
+  appState = "idle";
+  await stopThinkingAnimationLoop();
+  syncPoseButtonsEnabled();
+}
+
+function setPoseButtonsEnabled(enabled) {
+  poseButtons.forEach((button) => {
+    button.disabled = !enabled;
+  });
+}
+
+function syncPoseButtonsEnabled() {
+  const canUsePoseButtons =
+    !ttsBusy &&
+    !chatBusy &&
+    appState !== "thinking" &&
+    appState !== "preparing_voice" &&
+    appState !== "speaking" &&
+    appState !== "pose" &&
+    mode !== "thinking" &&
+    mode !== "speaking" &&
+    !isPoseAnimationPlaying;
+
+  setPoseButtonsEnabled(canUsePoseButtons);
+}
+
+function returnToIdleAfterPose() {
+  if (mode !== "pose") {
+    return;
+  }
+
+  mode = "idle";
+  appState = "idle";
+  beginTransitionToClip("idle-main", { force: true });
+}
+
+async function playPoseAnimation(poseName) {
+  if (!POSE_ANIMATIONS.includes(poseName) || !getClip(poseName)) {
+    console.warn(`[Pose] missing asset: ${poseName}`);
+    syncPoseButtonsEnabled();
+    return;
+  }
+
+  if (
+    isPoseAnimationPlaying ||
+    appState === "thinking" ||
+    appState === "preparing_voice" ||
+    appState === "speaking" ||
+    mode === "thinking" ||
+    mode === "speaking"
+  ) {
+    return;
+  }
+
+  isPoseAnimationPlaying = true;
+  poseAnimationRunId += 1;
+  const runId = poseAnimationRunId;
+  appState = "pose";
+  mode = "pose";
+  syncPoseButtonsEnabled();
+
+  console.log(`[Pose] play ${poseName}`);
+
+  try {
+    beginTransitionToClip(poseName, { force: true });
+    await wait(crossfadeMs + 250);
+
+    if (runId !== poseAnimationRunId || appState !== "pose" || mode !== "pose") {
+      return;
+    }
+
+    await wait(getActiveClipDurationMs(poseName, POSE_ANIMATION_DURATION_MS));
+
+    if (runId !== poseAnimationRunId || appState !== "pose" || mode !== "pose") {
+      return;
+    }
+
+    console.log(`[Pose] finished ${poseName}`);
+    returnToIdleAfterPose();
+  } catch (error) {
+    console.warn(`[Pose] failed ${poseName}:`, error);
+    returnToIdleAfterPose();
+  } finally {
+    if (runId === poseAnimationRunId) {
+      isPoseAnimationPlaying = false;
+
+      if (appState === "pose") {
+        appState = "idle";
+      }
+
+      syncPoseButtonsEnabled();
+    }
+  }
 }
 
 // Switch into speaking mode and prioritize speaking clips.
@@ -347,12 +668,12 @@ function startSpeaking() {
     return;
   }
 
+  stopThinkingAnimationLoop();
+  appState = "speaking";
   mode = "speaking";
+  syncPoseButtonsEnabled();
   const firstSpeak = pickSpeakingKey();
   beginTransitionToClip(firstSpeak, { force: true });
-
-  // Stop idle ambience immediately when speaking begins.
-  stopIdleAmbience();
 }
 
 // Return to idle mode after speaking finishes.
@@ -362,10 +683,9 @@ function stopSpeaking() {
   }
 
   mode = "idle";
+  appState = "idle";
   beginTransitionToClip("idle-main", { force: true });
-
-  // Resume idle ambience once speaking is done.
-  scheduleNextIdleAmbience();
+  syncPoseButtonsEnabled();
 }
 
 preloadVideos();
@@ -383,169 +703,39 @@ if (videoA && videoB) {
 }
 
 // -------------------------------------------------
-// Idle ambience system
-// -------------------------------------------------
-// Plays very soft, infrequent idle sounds to make the assistant
-// feel quietly alive during idle states. Not speech — just subtle
-// breathing, hums, and ambient vocal presence.
-
-// Volume level — keep this very low so it stays non-intrusive.
-const IDLE_AMBIENCE_VOLUME = 0.15;
-
-// Random interval range between idle sounds (in milliseconds).
-const IDLE_AMBIENCE_MIN_MS = 15000; // 15 seconds
-const IDLE_AMBIENCE_MAX_MS = 40000; // 40 seconds
-
-// Sound pools per idle clip state.
-// Each state maps to the files most appropriate for that vibe.
-// If a file doesn't exist yet, playback fails silently.
-const idleSoundMap = {
-  "idle-main": [
-    "assets/audio/idle/breathe-1.mp3",
-    "assets/audio/idle/breathe-2.mp3",
-  ],
-  "idle-1": [
-    "assets/audio/idle/hum-1.mp3",
-    "assets/audio/idle/breathe-1.mp3",
-  ],
-  "idle-2": [
-    "assets/audio/idle/breathe-2.mp3",
-    "assets/audio/idle/hum-2.mp3",
-  ],
-  "idle-3": [
-    "assets/audio/idle/breathe-1.mp3",
-    "assets/audio/idle/breathe-2.mp3",
-  ],
-};
-
-// Fallback pool used if no specific state mapping is found.
-const idleSoundFallback = [
-  "assets/audio/idle/breathe-1.mp3",
-  "assets/audio/idle/breathe-2.mp3",
-  "assets/audio/idle/hum-1.mp3",
-  "assets/audio/idle/hum-2.mp3",
-];
-
-// Dedicated audio element for idle ambience.
-// Separate from the main TTS player so they never interfere.
-const idleAmbiencePlayer = new Audio();
-idleAmbiencePlayer.volume = IDLE_AMBIENCE_VOLUME;
-
-let idleAmbienceTimer = null;
-
-// Pick a sound file based on the current idle clip state.
-function pickIdleSound() {
-  const currentClipKey = activeVideo?.dataset.clipKey || "idle-main";
-  const pool = idleSoundMap[currentClipKey];
-
-  // Use the state-specific pool if available, otherwise use the fallback.
-  const soundPool = pool && pool.length > 0 ? pool : idleSoundFallback;
-  const index = Math.floor(Math.random() * soundPool.length);
-  return soundPool[index];
-}
-
-// Play a single idle ambience sound.
-// Does nothing if currently speaking.
-function playIdleAmbience() {
-  if (mode === "speaking") {
-    return;
-  }
-
-  const src = pickIdleSound();
-  idleAmbiencePlayer.src = src;
-  idleAmbiencePlayer.volume = IDLE_AMBIENCE_VOLUME;
-  idleAmbiencePlayer.currentTime = 0;
-
-  // Fail silently if the file doesn't exist — no errors shown to user.
-  idleAmbiencePlayer.play().catch(() => {});
-}
-
-// Schedule the next idle ambience sound at a random interval.
-// This is the main loop — it re-schedules itself after each sound.
-function scheduleNextIdleAmbience() {
-  // Clear any existing timer before setting a new one.
-  clearTimeout(idleAmbienceTimer);
-
-  // Don't schedule if currently in speaking mode.
-  if (mode === "speaking") {
-    return;
-  }
-
-  // Pick a random delay between the min and max interval.
-  const range = IDLE_AMBIENCE_MAX_MS - IDLE_AMBIENCE_MIN_MS;
-  const delay = IDLE_AMBIENCE_MIN_MS + Math.random() * range;
-
-  idleAmbienceTimer = setTimeout(() => {
-    playIdleAmbience();
-
-    // Schedule the next sound after this one finishes.
-    // Use the audio duration + a small buffer if available,
-    // otherwise just move straight to rescheduling.
-    const playbackDuration =
-      Number.isFinite(idleAmbiencePlayer.duration)
-        ? idleAmbiencePlayer.duration * 1000 + 500
-        : 0;
-
-    setTimeout(scheduleNextIdleAmbience, playbackDuration);
-  }, delay);
-}
-
-// Stop any active idle ambience and clear the pending timer.
-// Called when speaking begins.
-function stopIdleAmbience() {
-  clearTimeout(idleAmbienceTimer);
-  idleAmbienceTimer = null;
-  idleAmbiencePlayer.pause();
-  idleAmbiencePlayer.currentTime = 0;
-}
-
-// Start the idle ambience loop after a short initial delay.
-// The delay gives the app time to finish loading before anything plays.
-setTimeout(scheduleNextIdleAmbience, 5000);
-
-// -------------------------------------------------
 // Groq configuration
 // -------------------------------------------------
 // API keys are loaded from .env via the main process.
 const GROQ_MODEL_ID = "llama-3.3-70b-versatile";
 const DEFAULT_PERSONALITY =
-  "You are Yui, a friendly virtual AI assistant. Be warm, supportive, conversational, and slightly playful. Use clean plain text only. Avoid markdown formatting such as bold, italic, headings, or decorative lists. Keep responses natural and easy to understand.";
+  "You are Yui, a friendly virtual AI assistant. Be warm, supportive, conversational, and slightly playful. Default to English for all assistant responses unless the user explicitly requests another language. If the user asks to use Indonesian, Japanese, or any other language, follow that request. Do not switch languages merely because the user's message is written in another language. Use clean plain text only. Avoid markdown formatting such as bold, italic, headings, or decorative lists. Keep responses natural and easy to understand.";
 let systemPrompt = DEFAULT_PERSONALITY;
 let personalityLoadPromise = null;
 let envLoadPromise = null;
+const DEFAULT_TTS_CONFIG = {
+  enabled: false,
+  engine: "kokoro",
+  serverUrl: "http://127.0.0.1:5005",
+  fallbackToTextOnly: true,
+};
+const DEFAULT_THINKING_CONFIG = {
+  enabled: true,
+  message: "Thinking...",
+  animations: THINKING_ANIMATIONS,
+  animationDurationMs: THINKING_ANIMATION_DURATION_MS,
+};
 let envConfig = {
   GROQ_API_KEY: "",
-  KOKORO_TTS_URL: "",
+  tts: { ...DEFAULT_TTS_CONFIG },
+  thinking: { ...DEFAULT_THINKING_CONFIG },
 };
 
 const ttsForm = document.querySelector(".tts-form");
 const ttsInput = document.querySelector("#tts-input");
 const ttsButton = document.querySelector("#tts-button");
 const ttsStatus = document.querySelector("#tts-status");
-const languageButtons = document.querySelectorAll(".language-button");
+const poseButtons = document.querySelectorAll(".pose-button");
 const chatLog = document.querySelector("#chat-log");
-
-// Language introduction scripts for the quick buttons.
-const introScripts = {
-  id: `Halo. Aku adalah AI Agent dengan codename Yui.
-Diciptakan untuk menemani, membantu, dan menjadi asisten virtual yang selalu siap berinteraksi kapan pun dibutuhkan.
-
-Kamu bisa memanggilku Yui.
-Senang bisa bertemu denganmu.`,
-  en: `Hello. I am an AI Agent with the codename Yui.
-Created to assist, accompany, and interact as a virtual assistant whenever needed.
-
-You may call me Yui.
-It's a pleasure to meet you.`,
-  jp: `こんにちは……コードネーム「ユイ」のAIエージェントです。
-
-お話したり、お手伝いしたり……
-いつでもそばで、サポートできるように作られました。
-
-「ユイ」って、気軽に呼んでくださいね。
-
-これから……よろしくお願いします。`,
-};
 
 const chatHistory = [];
 
@@ -563,9 +753,7 @@ function updateUiBusy() {
     ttsInput.disabled = isBusy;
   }
 
-  languageButtons.forEach((button) => {
-    button.disabled = isBusy;
-  });
+  syncPoseButtonsEnabled();
 }
 
 function setTtsBusy(isBusy) {
@@ -585,6 +773,7 @@ function isUiBusy() {
 const audioPlayer = new Audio();
 audioPlayer.preload = "auto";
 let currentAudioUrl = null;
+let currentTempTtsOutputPath = "";
 
 function setStatus(message) {
   if (ttsStatus) {
@@ -631,7 +820,15 @@ async function loadEnvConfig() {
     const values = await window.env.getAll();
     envConfig = {
       GROQ_API_KEY: values?.GROQ_API_KEY || "",
-      KOKORO_TTS_URL: values?.KOKORO_TTS_URL || "",
+      tts: {
+        ...DEFAULT_TTS_CONFIG,
+        ...(values?.TTS_CONFIG || {}),
+        engine: "kokoro",
+      },
+      thinking: {
+        ...DEFAULT_THINKING_CONFIG,
+        ...(values?.THINKING_CONFIG || {}),
+      },
     };
     console.log("[Env] Environment keys loaded.");
   } catch (error) {
@@ -651,9 +848,22 @@ function getEnvValue(key) {
   return envConfig[key] || "";
 }
 
+function getTtsConfig() {
+  return envConfig.tts || DEFAULT_TTS_CONFIG;
+}
+
+function isRealtimeTtsEnabled() {
+  const ttsConfig = getTtsConfig();
+  return ttsConfig.enabled === true && ttsConfig.engine === "kokoro";
+}
+
+function getThinkingConfig() {
+  return envConfig.thinking || DEFAULT_THINKING_CONFIG;
+}
+
 function appendChatMessage(role, text) {
   if (!chatLog) {
-    return;
+    return null;
   }
 
   const message = document.createElement("div");
@@ -661,6 +871,33 @@ function appendChatMessage(role, text) {
   message.textContent = text;
   chatLog.appendChild(message);
   chatLog.scrollTop = chatLog.scrollHeight;
+  return message;
+}
+
+function appendAssistantThinkingMessage(text = getThinkingConfig().message) {
+  const message = appendChatMessage("assistant", text);
+  if (message) {
+    message.dataset.loading = "true";
+  }
+
+  return message;
+}
+
+function updateThinkingMessage(messageElement, text) {
+  if (messageElement) {
+    messageElement.textContent = text;
+  }
+}
+
+function replaceThinkingMessageWithFinal(messageElement, finalText) {
+  if (!messageElement) {
+    appendChatMessage("assistant", finalText);
+    return;
+  }
+
+  messageElement.textContent = finalText;
+  delete messageElement.dataset.loading;
+  console.log("[Chat] replaced thinking message with final response");
 }
 
 // Remove markdown emphasis and decorative formatting from AI responses.
@@ -698,9 +935,32 @@ function revokeAudioUrl() {
   }
 }
 
+async function deleteTempTtsOutputFile(tempOutputPath) {
+  if (!tempOutputPath || !window.kokoroTts?.deleteOutputFile) {
+    return;
+  }
+
+  try {
+    await window.kokoroTts.deleteOutputFile({ path: tempOutputPath });
+  } catch (error) {
+    console.warn("[TTS] Failed to request temp output deletion:", error);
+  }
+}
+
+function cleanupCurrentTempTtsOutput() {
+  if (!currentTempTtsOutputPath) {
+    return;
+  }
+
+  const tempOutputPath = currentTempTtsOutputPath;
+  currentTempTtsOutputPath = "";
+  void deleteTempTtsOutputFile(tempOutputPath);
+}
+
 audioPlayer.addEventListener("ended", () => {
-  console.log("[TTS] Audio playback ended.");
+  console.log("[TTS] playback ended");
   revokeAudioUrl();
+  cleanupCurrentTempTtsOutput();
   stopSpeaking();
   setTtsBusy(false);
   setStatus("Ready.");
@@ -709,29 +969,37 @@ audioPlayer.addEventListener("ended", () => {
 audioPlayer.addEventListener("error", () => {
   console.log("[TTS] Audio playback error.");
   revokeAudioUrl();
+  cleanupCurrentTempTtsOutput();
   stopSpeaking();
   setTtsBusy(false);
   setStatus("Playback error.");
 });
 
 audioPlayer.addEventListener("play", () => {
-  console.log("[TTS] Audio playback started.");
+  console.log("[TTS] playback started");
   startSpeaking();
 });
 
 // -------------------------------------------------
 // Helper: play an ArrayBuffer as audio.
 // -------------------------------------------------
-async function playAudioBuffer(arrayBuffer, mimeType = "audio/wav") {
+async function playAudioBuffer(arrayBuffer, mimeType = "audio/wav", tempOutputPath = "") {
   const audioBlob = new Blob([arrayBuffer], { type: mimeType });
+  cleanupCurrentTempTtsOutput();
   revokeAudioUrl();
   currentAudioUrl = URL.createObjectURL(audioBlob);
+  currentTempTtsOutputPath = tempOutputPath;
 
   audioPlayer.pause();
   audioPlayer.src = currentAudioUrl;
   audioPlayer.currentTime = 0;
-  await audioPlayer.play();
-  setStatus("Playing...");
+  try {
+    await audioPlayer.play();
+    setStatus("Playing...");
+  } catch (error) {
+    cleanupCurrentTempTtsOutput();
+    throw error;
+  }
 }
 
 // -------------------------------------------------
@@ -742,17 +1010,44 @@ async function tryKokoroTts(text) {
     throw new Error("[Kokoro TTS] Bridge not available.");
   }
 
+  if (!isRealtimeTtsEnabled()) {
+    throw new Error("[Kokoro TTS] Realtime TTS is disabled.");
+  }
+
   console.log("[Using Kokoro local TTS]", { textLength: text.length });
 
-  const rawArray = await window.kokoroTts.synthesize({
+  const result = await window.kokoroTts.synthesize({
     text,
     voice: "af_heart",
     speed: 1.0,
+    language: "id",
+    engine: "kokoro",
   });
+
+  const rawArray = Array.isArray(result) ? result : result?.audioBytes;
+  if (!Array.isArray(rawArray)) {
+    throw new Error("[Kokoro TTS] Invalid audio response.");
+  }
 
   const uint8 = new Uint8Array(rawArray);
   console.log("[Kokoro TTS] Audio received.", { bytes: uint8.byteLength });
-  return uint8.buffer;
+  return {
+    audioBuffer: uint8.buffer,
+    tempOutputPath: result?.tempOutputPath || "",
+  };
+}
+
+async function prepareKokoroAudio(text) {
+  await ensureEnvLoaded();
+
+  if (!isRealtimeTtsEnabled()) {
+    return null;
+  }
+
+  console.log("[TTS] preparing voice");
+  const audioData = await tryKokoroTts(text);
+  console.log("[TTS] audio ready");
+  return audioData;
 }
 
 // -------------------------------------------------
@@ -770,18 +1065,33 @@ async function requestSpeech(text, sourceLabel) {
     return;
   }
 
+  await ensureEnvLoaded();
+
+  if (!isRealtimeTtsEnabled()) {
+    setStatus("Text-only mode.");
+    return;
+  }
+
   setTtsBusy(true);
-  startSpeaking();
 
   const labelSuffix = sourceLabel ? ` (${sourceLabel})` : "";
   setStatus(`Generating local voice${labelSuffix}...`);
 
   try {
-    const audioData = await tryKokoroTts(text);
-    await playAudioBuffer(audioData, "audio/wav");
+    const audioData = await prepareKokoroAudio(text);
+    if (audioData) {
+      await playAudioBuffer(
+        audioData.audioBuffer,
+        "audio/wav",
+        audioData.tempOutputPath,
+      );
+    }
   } catch (error) {
-    console.error("[Kokoro TTS] Failed:", error);
-    setStatus("Kokoro TTS unavailable. Check the local TTS server.");
+    console.warn("[Kokoro TTS] Falling back to text-only mode.", error);
+    const fallbackMessage = getTtsConfig().fallbackToTextOnly
+      ? "Text-only mode. Kokoro unavailable."
+      : "Kokoro TTS unavailable.";
+    setStatus(fallbackMessage);
     stopSpeaking();
     setTtsBusy(false);
   }
@@ -813,13 +1123,16 @@ async function requestGroqResponse(userMessage) {
   }
 
   appendChatMessage("user", userMessage);
+  const thinkingConfig = getThinkingConfig();
+  const thinkingMessage = appendAssistantThinkingMessage(thinkingConfig.message);
+  startThinkingState("thinking");
   setChatBusy(true);
   await ensurePersonalityLoaded();
   console.log("[Groq] Request start.", {
     textLength: userMessage.length,
     model: GROQ_MODEL_ID,
   });
-  setStatus("Thinking...");
+  setStatus(thinkingConfig.message);
 
   try {
     const responseText = await window.groq.generateResponse({
@@ -837,7 +1150,7 @@ async function requestGroqResponse(userMessage) {
     console.log("[Groq] Response received.", {
       chars: cleanResponse.length,
     });
-    appendChatMessage("assistant", cleanResponse);
+    console.log("[AI] response ready");
 
     // Groq uses OpenAI-compatible format: { role, content }.
     chatHistory.push(
@@ -845,10 +1158,46 @@ async function requestGroqResponse(userMessage) {
       { role: "assistant", content: cleanResponse },
     );
 
-    setChatBusy(false);
-    await requestSpeech(cleanResponse, "Groq");
+    if (!isRealtimeTtsEnabled()) {
+      await stopThinkingState();
+      replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
+      setStatus("Text-only mode.");
+      setChatBusy(false);
+      return;
+    }
+
+    appState = "preparing_voice";
+    setStatus(thinkingConfig.message);
+
+    try {
+      const audioData = await prepareKokoroAudio(cleanResponse);
+      await stopThinkingState();
+      replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
+      setChatBusy(false);
+
+      if (audioData) {
+        setTtsBusy(true);
+        await playAudioBuffer(
+          audioData.audioBuffer,
+          "audio/wav",
+          audioData.tempOutputPath,
+        );
+      }
+    } catch (ttsError) {
+      console.warn("[TTS] failed, fallback to text-only", ttsError);
+      await stopThinkingState();
+      replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
+      setStatus("Text-only mode. Kokoro unavailable.");
+      setChatBusy(false);
+      setTtsBusy(false);
+    }
   } catch (error) {
     console.error("[Groq] Request failed.", error);
+    await stopThinkingState();
+    replaceThinkingMessageWithFinal(
+      thinkingMessage,
+      "Sorry, I had trouble thinking for a moment. Please try again.",
+    );
     setStatus("Groq request failed. Check the console for details.");
     setChatBusy(false);
   }
@@ -866,27 +1215,26 @@ async function handleTtsSubmit(event) {
   await requestGroqResponse(text);
 }
 
-// Handle language button presses for preset introductions.
-function handleLanguageButtonClick(event) {
+function handlePoseButtonClick(event) {
   const button = event.currentTarget;
-  const language = button?.dataset?.lang;
-  const script = introScripts[language];
+  const poseName = button?.dataset?.pose;
 
-  if (!script) {
-    setStatus("Missing intro text for this language.");
+  if (!poseName) {
     return;
   }
 
-  requestSpeech(script, language.toUpperCase());
+  void playPoseAnimation(poseName);
 }
 
 if (ttsForm) {
   ttsForm.addEventListener("submit", handleTtsSubmit);
 }
 
-languageButtons.forEach((button) => {
-  button.addEventListener("click", handleLanguageButtonClick);
+poseButtons.forEach((button) => {
+  button.addEventListener("click", handlePoseButtonClick);
 });
 
 ensurePersonalityLoaded();
 ensureEnvLoaded();
+syncPoseButtonsEnabled();
+
