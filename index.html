@@ -3,55 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Assistant [Yui]</title>
+    <title>Yui — AI Companion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- Main stage for the idle animation videos -->
-    <main class="stage">
-      <video
-        class="idle-video idle-video--a"
-        autoplay
-        muted
-        playsinline
-        preload="auto"
-      ></video>
-      <video
-        class="idle-video idle-video--b"
-        autoplay
-        muted
-        playsinline
-        preload="auto"
-      ></video>
-    </main>
+    <div class="app-shell">
 
-    <!-- Pose animation buttons -->
-    <nav class="pose-controls" aria-label="Pose animations">
-      <button class="pose-button" id="poseBtn1" type="button" data-pose="pose-1">
-        Pose 1
-      </button>
-      <button class="pose-button" id="poseBtn2" type="button" data-pose="pose-2">
-        Pose 2
-      </button>
-      <button class="pose-button" id="poseBtn3" type="button" data-pose="pose-3">
-        Pose 3
-      </button>
-    </nav>
+      <!-- Left: Avatar Stage -->
+      <section class="avatar-stage">
+        <!-- Pose controls pinned to top-right of stage -->
+        <nav class="pose-controls" aria-label="Pose animations">
+          <button class="pose-button" id="poseBtn1" type="button" data-pose="pose-1">Pose 1</button>
+          <button class="pose-button" id="poseBtn2" type="button" data-pose="pose-2">Pose 2</button>
+          <button class="pose-button" id="poseBtn3" type="button" data-pose="pose-3">Pose 3</button>
+        </nav>
 
-    <!-- Simple text-to-speech controls -->
-    <section class="controls">
-      <div class="chat-log" id="chat-log" aria-live="polite"></div>
-      <form class="tts-form" autocomplete="off">
-        <input
-          id="tts-input"
-          type="text"
-          placeholder="Type a message"
-          aria-label="Chat message"
-        />
-        <button id="tts-button" type="submit">Send</button>
-      </form>
-      <p class="tts-status" id="tts-status">Ready.</p>
-    </section>
+        <!-- Video stage for idle/speaking/thinking animations -->
+        <main class="stage">
+          <video
+            class="idle-video idle-video--a"
+            autoplay
+            muted
+            playsinline
+            preload="auto"
+          ></video>
+          <video
+            class="idle-video idle-video--b"
+            autoplay
+            muted
+            playsinline
+            preload="auto"
+          ></video>
+        </main>
+
+        <!-- Status pill at bottom-left -->
+        <div class="avatar-status-pill" id="avatar-status-pill">
+          <span class="status-dot"></span>
+          <span class="status-label" id="tts-status">Ready.</span>
+        </div>
+      </section>
+
+      <!-- Right: Chat Panel -->
+      <aside class="chat-panel">
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <div class="chat-title">Yui</div>
+            <div class="chat-subtitle">AI Companion</div>
+          </div>
+          <div class="chat-online-badge">
+            <span class="online-dot"></span>
+            Online
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-log" aria-live="polite"></div>
+
+        <form class="tts-form chat-input-row" autocomplete="off">
+          <input
+            id="tts-input"
+            type="text"
+            class="chat-input"
+            placeholder="Type a message..."
+            aria-label="Chat message"
+          />
+          <button id="tts-button" class="chat-send-btn" type="submit" aria-label="Send message">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+      </aside>
+
+    </div>
 
     <!-- Renderer script for UI logic -->
     <script src="renderer.js"></script>

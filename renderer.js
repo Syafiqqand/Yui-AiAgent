@@ -726,6 +726,8 @@ const DEFAULT_THINKING_CONFIG = {
 };
 let envConfig = {
   GROQ_API_KEY: "",
+  WEATHERSTACK_API_KEY: "",
+  CALENDARIFIC_API_KEY: "",
   tts: { ...DEFAULT_TTS_CONFIG },
   thinking: { ...DEFAULT_THINKING_CONFIG },
 };
@@ -820,6 +822,8 @@ async function loadEnvConfig() {
     const values = await window.env.getAll();
     envConfig = {
       GROQ_API_KEY: values?.GROQ_API_KEY || "",
+      WEATHERSTACK_API_KEY: values?.WEATHERSTACK_API_KEY || "",
+      CALENDARIFIC_API_KEY: values?.CALENDARIFIC_API_KEY || "",
       tts: {
         ...DEFAULT_TTS_CONFIG,
         ...(values?.TTS_CONFIG || {}),
@@ -1097,6 +1101,256 @@ async function requestSpeech(text, sourceLabel) {
   }
 }
 
+// -------------------------------------------------
+// Weather: detect query, extract city, fetch context.
+// -------------------------------------------------
+const WEATHER_KEYWORDS = [
+  "weather", "cuaca", "suhu", "temperature", "humid", "kelembaban",
+  "raining", "hujan", "sunny", "cerah", "cloudy", "berawan",
+  "wind", "angin", "forecast", "prakiraan", "panas", "dingin", "gerimis",
+];
+
+function isWeatherQuery(message) {
+  const lower = message.toLowerCase();
+  return WEATHER_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function extractCityFromMessage(message) {
+  const patterns = [
+    /weather\s+(?:in|at|for|of|around)\s+([\w\s]+?)(?:\?|$|\s+now|\s+today)/i,
+    /(?:in|at|di|kota|daerah)\s+([\w\s]+?)\s+(?:weather|cuaca|suhu|temperature)/i,
+    /cuaca\s+(?:di|kota|daerah|wilayah)?\s*([\w\s]+?)(?:\?|$|\s+sekarang|\s+hari ini)/i,
+    /suhu\s+(?:di|kota)?\s*([\w\s]+?)(?:\?|$|\s+sekarang)/i,
+    /(?:how(?:'s| is) (?:the )?weather|what(?:'s| is) (?:the )?weather)\s+(?:in|at|di)?\s*([\w\s]+?)(?:\?|$)/i,
+    /(?:weather|cuaca|suhu|temperature)\s+(?:in|di|at)?\s*([\w\s]+?)(?:\?|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+function formatWeatherContext(data) {
+  const loc = data.location;
+  const cur = data.current;
+  const desc = Array.isArray(cur.weather_descriptions)
+    ? cur.weather_descriptions.join(", ")
+    : cur.weather_descriptions || "unknown";
+
+  return (
+    `[Real-time weather data — ` +
+    `Location: ${loc.name}, ${loc.region}, ${loc.country} | ` +
+    `Temperature: ${cur.temperature}°C (feels like ${cur.feelslike}°C) | ` +
+    `Condition: ${desc} | ` +
+    `Humidity: ${cur.humidity}% | ` +
+    `Wind: ${cur.wind_speed} km/h ${cur.wind_dir} | ` +
+    `Visibility: ${cur.visibility} km | ` +
+    `UV Index: ${cur.uv_index}]`
+  );
+}
+
+async function fetchWeatherContext(city) {
+  if (!window.weather?.fetch) {
+    return null;
+  }
+
+  const weatherApiKey = getEnvValue("WEATHERSTACK_API_KEY");
+  if (!weatherApiKey) {
+    console.warn("[Weather] WEATHERSTACK_API_KEY not set.");
+    return null;
+  }
+
+  try {
+    console.log("[Weather] Fetching for city:", city);
+    const data = await window.weather.fetch({ city, apiKey: weatherApiKey });
+    const context = formatWeatherContext(data);
+    console.log("[Weather] Data ready.", context);
+    return context;
+  } catch (error) {
+    console.warn("[Weather] Fetch failed:", error);
+    return null;
+  }
+}
+
+// -------------------------------------------------
+// Calendar: detect query, extract params, fetch holidays.
+// -------------------------------------------------
+const HOLIDAY_KEYWORDS = [
+  "holiday", "holidays", "libur", "hari libur", "tanggal merah",
+  "public holiday", "national day", "hari nasional", "cuti bersama",
+  "long weekend", "harnas", "perayaan", "celebration",
+];
+
+// Map of common country names to ISO 3166-1 alpha-2 codes.
+const COUNTRY_CODE_MAP = {
+  indonesia: "ID",
+  japanese: "JP",
+  japan: "JP",
+  usa: "US",
+  america: "US",
+  "united states": "US",
+  uk: "GB",
+  "united kingdom": "GB",
+  britain: "GB",
+  australia: "AU",
+  malaysia: "MY",
+  singapore: "SG",
+  korea: "KR",
+  china: "CN",
+  india: "IN",
+  germany: "DE",
+  france: "FR",
+  brazil: "BR",
+};
+
+const MONTH_MAP = {
+  january: 1, jan: 1, januari: 1,
+  february: 2, feb: 2, februari: 2,
+  march: 3, mar: 3, maret: 3,
+  april: 4, apr: 4,
+  may: 5, mei: 5,
+  june: 6, jun: 6, juni: 6,
+  july: 7, jul: 7, juli: 7,
+  august: 8, aug: 8, agustus: 8,
+  september: 9, sep: 9,
+  october: 10, oct: 10, oktober: 10,
+  november: 11, nov: 11,
+  december: 12, dec: 12, desember: 12,
+};
+
+function isHolidayQuery(message) {
+  const lower = message.toLowerCase();
+  return HOLIDAY_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function extractHolidayParams(message) {
+  const lower = message.toLowerCase();
+
+  // Extract country (default Indonesia).
+  let countryCode = "ID";
+  for (const [name, code] of Object.entries(COUNTRY_CODE_MAP)) {
+    if (lower.includes(name)) {
+      countryCode = code;
+      break;
+    }
+  }
+
+  // Extract month name.
+  let month = null;
+  for (const [name, num] of Object.entries(MONTH_MAP)) {
+    if (lower.includes(name)) {
+      month = num;
+      break;
+    }
+  }
+
+  // Extract 4-digit year.
+  const yearMatch = message.match(/\b(20\d{2})\b/);
+  const year = yearMatch ? parseInt(yearMatch[1], 10) : new Date().getFullYear();
+
+  // Detect if asking about today specifically.
+  const isTodayQuery = /(today|hari ini|sekarang|tanggal berapa|tanggal hari ini)/i.test(message);
+
+  return { countryCode, month, year, isTodayQuery };
+}
+
+function formatHolidayContext(holidays, params) {
+  if (!holidays || holidays.length === 0) {
+    return `[No public holidays found for country: ${params.countryCode}, year: ${params.year}${params.month ? `, month: ${params.month}` : ""}]`;
+  }
+
+  if (params.isTodayQuery) {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const todayHolidays = holidays.filter((h) => h.date?.iso?.startsWith(todayStr));
+
+    if (todayHolidays.length === 0) {
+      return `[Today (${todayStr}) is not a public holiday in ${params.countryCode}]`;
+    }
+
+    const list = todayHolidays.map((h) => `${h.name} (${h.type?.join(", ") || "Holiday"})`).join("; ");
+    return `[Today (${todayStr}) is a public holiday in ${params.countryCode}: ${list}]`;
+  }
+
+  const list = holidays
+    .slice(0, 15)
+    .map((h) => `${h.date?.iso || "?"}: ${h.name}`)
+    .join(" | ");
+
+  const label = params.month
+    ? `month ${params.month} of ${params.year}`
+    : `year ${params.year}`;
+
+  return `[Public holidays in ${params.countryCode} for ${label} (${holidays.length} total): ${list}]`;
+}
+
+async function fetchHolidayContext(message) {
+  if (!window.calendar?.fetchHolidays) {
+    return null;
+  }
+
+  const calApiKey = getEnvValue("CALENDARIFIC_API_KEY");
+  if (!calApiKey) {
+    console.warn("[Calendar] CALENDARIFIC_API_KEY not set.");
+    return null;
+  }
+
+  const params = extractHolidayParams(message);
+
+  try {
+    console.log("[Calendar] Fetching holidays.", params);
+    const holidays = await window.calendar.fetchHolidays({
+      apiKey: calApiKey,
+      country: params.countryCode,
+      year: params.year,
+      month: params.month || undefined,
+    });
+    const context = formatHolidayContext(holidays, params);
+    console.log("[Calendar] Data ready.", context);
+    return context;
+  } catch (error) {
+    console.warn("[Calendar] Fetch failed:", error);
+    return null;
+  }
+}
+
+// -------------------------------------------------
+// Date/Time: build a fresh local datetime context string.
+// Called per-message so it always reflects the current moment.
+// -------------------------------------------------
+function getCurrentDateTimeContext() {
+  const now = new Date();
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const localFormatted = now.toLocaleString("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const isoTimestamp = now.toISOString();
+
+  return (
+    `Current date and time:\n` +
+    `- Local time: ${localFormatted}\n` +
+    `- Timezone: ${timezone}\n` +
+    `- ISO time: ${isoTimestamp}\n\n` +
+    `Use this date/time information when the user asks about time, dates, today, tomorrow, yesterday, schedules, reminders, or time-related questions.`
+  );
+}
+
 // Send a chat message to Groq and speak the response.
 async function requestGroqResponse(userMessage) {
   if (isUiBusy()) {
@@ -1128,6 +1382,31 @@ async function requestGroqResponse(userMessage) {
   startThinkingState("thinking");
   setChatBusy(true);
   await ensurePersonalityLoaded();
+
+  // Inject real-time context (weather and/or holidays) when relevant.
+  let contextualMessage = userMessage;
+  const contextParts = [];
+
+  if (isWeatherQuery(userMessage)) {
+    const city = extractCityFromMessage(userMessage);
+    if (city) {
+      const weatherContext = await fetchWeatherContext(city);
+      if (weatherContext) contextParts.push(weatherContext);
+    }
+  }
+
+  if (isHolidayQuery(userMessage)) {
+    const holidayContext = await fetchHolidayContext(userMessage);
+    if (holidayContext) contextParts.push(holidayContext);
+  }
+
+  // Always inject fresh date/time context so Yui can answer time-related questions.
+  contextParts.unshift(getCurrentDateTimeContext());
+
+  if (contextParts.length > 0) {
+    contextualMessage = `${userMessage}\n\n${contextParts.join("\n")}`;
+  }
+
   console.log("[Groq] Request start.", {
     textLength: userMessage.length,
     model: GROQ_MODEL_ID,
@@ -1140,7 +1419,7 @@ async function requestGroqResponse(userMessage) {
       model: GROQ_MODEL_ID,
       systemPrompt: systemPrompt,
       history: chatHistory,
-      message: userMessage,
+      message: contextualMessage,
     });
 
     const sanitizedResponse = sanitizeResponse(responseText || "");

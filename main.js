@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
 
@@ -183,10 +183,15 @@ async function cleanupOldTtsOutputFiles() {
 
 // Create the main application window.
 function createWindow() {
+  // Remove the native menu bar for a cleaner desktop companion feel.
+  Menu.setApplicationMenu(null);
+
   const win = new BrowserWindow({
-    width: 450,
-    height: 800,
-    backgroundColor: "#ffffff",
+    width: 1200,
+    height: 760,
+    minWidth: 1000,
+    minHeight: 650,
+    backgroundColor: "#f0eff4",
     webPreferences: {
       // Keep the renderer isolated for safety and future expansion.
       contextIsolation: true,
@@ -285,9 +290,84 @@ ipcMain.handle("env:getAll", async () => {
 
   return {
     GROQ_API_KEY: process.env.GROQ_API_KEY || "",
+    WEATHERSTACK_API_KEY: process.env.WEATHERSTACK_API_KEY || "",
+    CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || "",
     TTS_CONFIG: appConfig.tts,
     THINKING_CONFIG: appConfig.thinking,
   };
+});
+
+// Calendarific holidays fetch — retrieves public holidays for a given country and year.
+ipcMain.handle("calendar:fetchHolidays", async (_event, payload = {}) => {
+  const { apiKey, country = "ID", year, month } = payload;
+
+  if (!apiKey) {
+    throw new Error("[Calendar] Missing Calendarific API key.");
+  }
+
+  const resolvedYear = year || new Date().getFullYear();
+
+  let url =
+    `https://calendarific.com/api/v2/holidays` +
+    `?api_key=${encodeURIComponent(apiKey)}` +
+    `&country=${encodeURIComponent(country.toUpperCase())}` +
+    `&year=${resolvedYear}`;
+
+  if (month) {
+    url += `&month=${month}`;
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`[Calendar] HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.meta?.code !== 200) {
+      throw new Error(`[Calendar] API error: ${data.meta?.error_detail || JSON.stringify(data.meta)}`);
+    }
+
+    return data.response?.holidays || [];
+  } catch (error) {
+    console.error("[Calendar] Fetch failed:", error);
+    throw error;
+  }
+});
+
+// Weatherstack current weather fetch — runs in main process to avoid CORS issues.
+ipcMain.handle("weather:fetch", async (_event, payload = {}) => {
+  const { city, apiKey } = payload;
+
+  if (!apiKey) {
+    throw new Error("[Weather] Missing Weatherstack API key.");
+  }
+
+  if (!city || typeof city !== "string") {
+    throw new Error("[Weather] Missing or invalid city name.");
+  }
+
+  // Weatherstack free tier only supports HTTP, not HTTPS.
+  const url = `http://api.weatherstack.com/current?access_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(city.trim())}&units=m`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`[Weather] HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(`[Weather] API error: ${data.error.info || JSON.stringify(data.error)}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error("[Weather] Fetch failed:", error);
+    throw error;
+  }
 });
 
 // Kokoro local TTS handler.

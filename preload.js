@@ -22,3 +22,13 @@ contextBridge.exposeInMainWorld("kokoroTts", {
   synthesize: (payload) => ipcRenderer.invoke("tts:kokoroSynthesize", payload),
   deleteOutputFile: (payload) => ipcRenderer.invoke("tts:deleteOutputFile", payload),
 });
+
+// Weatherstack weather bridge.
+contextBridge.exposeInMainWorld("weather", {
+  fetch: (payload) => ipcRenderer.invoke("weather:fetch", payload),
+});
+
+// Calendarific holidays bridge.
+contextBridge.exposeInMainWorld("calendar", {
+  fetchHolidays: (payload) => ipcRenderer.invoke("calendar:fetchHolidays", payload),
+});
