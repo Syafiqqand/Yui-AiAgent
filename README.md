@@ -11,7 +11,6 @@ Yui-AiAgent is an Electron-based VTuber AI companion with Groq chat, optional lo
 - Pose buttons in the top-right corner for `Pose 1`, `Pose 2`, and `Pose 3`
 - Idle sound feature postponed for future curated local assets
 - VTuber idle and speaking animations with smooth transitions
-- Minimal portrait UI for desktop use
 
 ## Setup
 

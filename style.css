@@ -43,7 +43,6 @@
   --shadow-send: 0 3px 12px rgba(124, 92, 191, 0.35);
 
   /* Sizes */
-  --chat-panel-width: 380px;
   --radius-panel: 18px;
   --radius-bubble: 16px;
   --radius-pill: 999px;
@@ -65,30 +64,24 @@ body {
 }
 
 /* ============================================================
-   APP SHELL — horizontal split
+   APP SHELL — 3-column grid: Music Dock | Avatar Stage | Chat
    ============================================================ */
 .app-shell {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(620px, 1fr) 430px;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  gap: 0;
 }
 
 /* ============================================================
    LEFT: AVATAR STAGE
    ============================================================ */
 .avatar-stage {
-  flex: 1 1 0;
-  min-width: 0;
   position: relative;
-  background: var(--bg-stage);
+  background: #ffffff;
   overflow: hidden;
-
-  /* Subtle inner gradient to give depth */
-  background-image:
-    radial-gradient(ellipse 80% 70% at 50% 100%, rgba(124, 92, 191, 0.08) 0%, transparent 70%),
-    linear-gradient(160deg, #edeaf5 0%, #e4e0f0 100%);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .stage {
@@ -212,8 +205,6 @@ body {
    RIGHT: CHAT PANEL
    ============================================================ */
 .chat-panel {
-  width: var(--chat-panel-width);
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -431,18 +422,15 @@ body {
 /* ============================================================
    RESPONSIVE — narrow window graceful fallback
    ============================================================ */
-@media (max-width: 800px) {
+@media (max-width: 1050px) {
   .app-shell {
-    flex-direction: column;
-  }
-
-  .avatar-stage {
-    flex: 0 0 50vh;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
   }
 
   .chat-panel {
-    width: 100%;
     border-left: none;
     border-top: 1px solid var(--border-panel);
+    max-height: 45vh;
   }
 }

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
+const musicController = require("./src/main/musicController");
 
 // Load environment variables from .env in the project root.
 require("dotenv").config({ path: path.join(__dirname, ".env") });
@@ -191,7 +192,7 @@ function createWindow() {
     height: 760,
     minWidth: 1000,
     minHeight: 650,
-    backgroundColor: "#f0eff4",
+    backgroundColor: "#ffffff",
     webPreferences: {
       // Keep the renderer isolated for safety and future expansion.
       contextIsolation: true,
@@ -201,6 +202,8 @@ function createWindow() {
   });
 
   win.loadFile("index.html");
+
+  return win;
 }
 
 // Initialize the app once Electron is ready.
@@ -455,4 +458,17 @@ ipcMain.handle("tts:deleteOutputFile", async (_event, payload = {}) => {
     console.warn("[TTS] delete output handler failed:", error);
     return { deleted: false, reason: error.message };
   }
+});
+
+// -------------------------------------------------
+// Yui Music Controller IPC handlers.
+// Automates YouTube Music opening and playback using Playwright.
+// -------------------------------------------------
+ipcMain.handle("music:open-youtube", async () => {
+  await musicController.openYouTubeMusic();
+});
+
+ipcMain.handle("music:play-youtube", async (_event, payload = {}) => {
+  const query = typeof payload.query === "string" ? payload.query : "";
+  return await musicController.playYouTubeMusic(query);
 });

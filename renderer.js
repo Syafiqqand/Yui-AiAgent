@@ -1351,6 +1351,99 @@ function getCurrentDateTimeContext() {
   );
 }
 
+// -------------------------------------------------
+// Yui Music Controller — intent detection.
+// Intercepts music commands before they reach the Groq pipeline.
+// -------------------------------------------------
+
+/**
+ * Detect whether the message is a music control command.
+ * Returns { type, query } or null if not a music intent.
+ *
+ * Supported types:
+ *   "open"   — open YouTube Music homepage externally using Playwright
+ *   "search" — play/search YouTube Music externally using Playwright
+ */
+function detectMusicIntent(message) {
+  const lower = message.trim().toLowerCase();
+
+  // --- open ---
+  // Matches: "open music", "open youtube music", "launch music", "launch youtube music"
+  if (
+    /^open\s+(music|youtube\s+music)\s*$/i.test(lower) ||
+    /^launch\s+(music|youtube\s+music)\s*$/i.test(lower)
+  ) {
+    return { type: "open", query: null };
+  }
+
+  // --- search / play ---
+  // Matches: "play <query>", "play music <query>", "search and play <query>", "search music <query>", "putar <query>"
+  const playMatch = lower.match(
+    /^(?:play(?:\s+music)?|search\s+and\s+play|search\s+music|putar)\s+(.+)$/i,
+  );
+  if (playMatch && playMatch[1]) {
+    const query = message.trim().replace(
+      /^(?:play(?:\s+music)?|search\s+and\s+play|search\s+music|putar)\s+/i,
+      "",
+    ).trim();
+    if (query.length > 0) {
+      return { type: "search", query };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Handle a music command: show chat bubble, execute action.
+ * Returns true if the message was a music intent (caller should stop).
+ * @param {string} userMessage
+ */
+async function handleMusicIntent(userMessage) {
+  const intent = detectMusicIntent(userMessage);
+  if (!intent) return false;
+
+  appendChatMessage("user", userMessage);
+
+  if (!window.yuiMusic) {
+    console.warn("[Music] yuiMusic bridge not available.");
+    appendChatMessage("assistant", "Sorry, the music automation bridge is not available right now.");
+    return true;
+  }
+
+  if (intent.type === "open") {
+    appendChatMessage("assistant", "Opening YouTube Music.");
+    try {
+      if (window.yuiMusic.openYouTube) {
+        await window.yuiMusic.openYouTube();
+      }
+    } catch (err) {
+      console.error("[Music] Failed to open YouTube Music:", err);
+    }
+  } else if (intent.type === "search") {
+    appendChatMessage("assistant", `Playing YouTube Music for: ${intent.query}.`);
+    try {
+      if (window.yuiMusic.playYouTube) {
+        const success = await window.yuiMusic.playYouTube(intent.query);
+        if (!success) {
+          appendChatMessage(
+            "assistant",
+            `I opened YouTube Music for: ${intent.query}, but I couldn't auto-play it. Please click the result manually.`
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[Music] Failed to automate YouTube Music:", err);
+      appendChatMessage(
+        "assistant",
+        `I encountered an error trying to search for: ${intent.query}. Please check if the browser was closed.`
+      );
+    }
+  }
+
+  return true;
+}
+
 // Send a chat message to Groq and speak the response.
 async function requestGroqResponse(userMessage) {
   if (isUiBusy()) {
@@ -1491,6 +1584,12 @@ async function handleTtsSubmit(event) {
 
   const text = ttsInput.value.trim();
   ttsInput.value = "";
+
+  // Check for music commands first — these do not go to the AI.
+  if (await handleMusicIntent(text)) {
+    return;
+  }
+
   await requestGroqResponse(text);
 }
 
@@ -1516,4 +1615,5 @@ poseButtons.forEach((button) => {
 ensurePersonalityLoaded();
 ensureEnvLoaded();
 syncPoseButtonsEnabled();
+
 

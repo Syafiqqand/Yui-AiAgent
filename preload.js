@@ -32,3 +32,9 @@ contextBridge.exposeInMainWorld("weather", {
 contextBridge.exposeInMainWorld("calendar", {
   fetchHolidays: (payload) => ipcRenderer.invoke("calendar:fetchHolidays", payload),
 });
+
+// Yui Music controller bridge — Playwright automated YouTube Music.
+contextBridge.exposeInMainWorld("yuiMusic", {
+  openYouTube: () => ipcRenderer.invoke("music:open-youtube"),
+  playYouTube: (query) => ipcRenderer.invoke("music:play-youtube", { query }),
+});
