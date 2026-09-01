@@ -40301,7 +40301,15 @@ void main() {
   });
 
   // src/avatar/HaruAvatarController.js
-  var MODEL_PATH, MOTIONS, EXPRESSIONS, HaruAvatarController, haruAvatar;
+  function registerLive2DTickerOnce() {
+    if (tickerRegistered) return;
+    tickerRegistered = true;
+    if (Live2DModel.registerTicker && Ticker) {
+      Live2DModel.registerTicker(Ticker);
+      console.log("[HaruAvatar] Live2D ticker registered");
+    }
+  }
+  var MODEL_PATH, tickerRegistered, MOTIONS, EXPRESSIONS, HaruAvatarController, haruAvatar;
   var init_HaruAvatarController = __esm({
     "src/avatar/HaruAvatarController.js"() {
       init_pixi();
@@ -40309,6 +40317,7 @@ void main() {
       init_cubism4_es();
       console.log("[HaruAvatar] Module loaded");
       MODEL_PATH = "assets/live2d/haru/haru.model3.json";
+      tickerRegistered = false;
       MOTIONS = {
         idle: ["haru_idle_01", "haru_idle_02", "haru_idle_03"],
         thinking: ["haru_m_01", "haru_m_02"],
@@ -40367,21 +40376,30 @@ void main() {
           });
           this._app.renderer.backgroundColor = 0;
           this._app.renderer.backgroundAlpha = 0;
+          registerLive2DTickerOnce();
           try {
             console.log("[HaruAvatar] Loading model:", MODEL_PATH);
-            this._model = await Live2DModel.from(MODEL_PATH, { autoInteract: false });
-            console.log("[HaruAvatar] Model loaded:", this._model);
+            this._model = await Live2DModel.from(MODEL_PATH, {
+              autoInteract: false,
+              version: 4
+            });
+            console.log("[HaruAvatar] Model loaded");
+            const bounds = this._model.getLocalBounds();
+            const modelWidth = bounds.width;
+            const modelHeight = bounds.height;
+            console.log("[HaruAvatar] Model native size:", modelWidth, "x", modelHeight);
             this._model.anchor.set(0.5, 0.5);
             this._model.position.set(this._app.screen.width / 2, this._app.screen.height / 2);
-            this._model.scale.set(0.35);
+            this._fitModelToCanvas();
             this._app.stage.addChild(this._model);
-            console.log("[HaruAvatar] Model added to stage, stage children:", this._app.stage.children.length);
+            const boundsAfter = this._model.getBounds();
+            console.log("[HaruAvatar] Final bounds:", `x=${boundsAfter.x.toFixed(1)}, y=${boundsAfter.y.toFixed(1)}, w=${boundsAfter.width.toFixed(1)}, h=${boundsAfter.height.toFixed(1)}`);
+            console.log("[HaruAvatar] Canvas:", this._app.screen.width, "x", this._app.screen.height);
             this._model.on("hit", (hitAreas) => {
               console.log("[HaruAvatar] Hit areas:", hitAreas);
             });
             this._resizeHandler = () => this._handleResize(container);
             window.addEventListener("resize", this._resizeHandler);
-            this._handleResize(container);
             this._initialized = true;
             console.log("[HaruAvatar] Model ready");
             this.playIdle();
@@ -40396,6 +40414,30 @@ void main() {
           const h = container.clientHeight;
           this._app.renderer.resize(w, h);
           this._model.position.set(w / 2, h / 2);
+          this._fitModelToCanvas();
+        }
+        /**
+         * Calculate and apply the proper scale to fit the model within the canvas
+         * with comfortable margins.
+         * Uses actual model bounds to calculate proper scale.
+         */
+        _fitModelToCanvas() {
+          if (!this._model || !this._app) return;
+          const w = this._app.screen.width;
+          const h = this._app.screen.height;
+          const bounds = this._model.getLocalBounds();
+          const modelWidth = bounds.width;
+          const modelHeight = bounds.height;
+          const marginRatio = 0.85;
+          const availableWidth = w * marginRatio;
+          const availableHeight = h * marginRatio;
+          const scaleX = availableWidth / modelWidth;
+          const scaleY = availableHeight / modelHeight;
+          const scale = Math.min(scaleX, scaleY);
+          this._model.scale.set(scale);
+          const scaledWidth = modelWidth * scale;
+          const scaledHeight = modelHeight * scale;
+          console.log("[HaruAvatar] Scale:", scale.toFixed(4), "| Model:", modelWidth, "x", modelHeight, "| Scaled:", scaledWidth.toFixed(1), "x", scaledHeight.toFixed(1), "| Canvas:", w, "x", h);
         }
         playIdle() {
           if (!this._model) return;
@@ -40477,8 +40519,8 @@ void main() {
             this._analyser.connect(this._audioCtx.destination);
             this._frequencyData = new Uint8Array(this._analyser.frequencyBinCount);
             this._isSpeaking = true;
-            const mouthParam = "ParamMouthOpenY";
-            const formParam = "ParamMouthForm";
+            const mouthParam = "PARAM_MOUTH_OPEN_Y";
+            const formParam = "PARAM_MOUTH_FORM";
             const updateViseme = () => {
               if (!this._isSpeaking || !this._analyser || !this._model) return;
               this._analyser.getByteFrequencyData(this._frequencyData);

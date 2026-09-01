@@ -23,6 +23,17 @@ console.log('[HaruAvatar] Module loaded');
 
 const MODEL_PATH = 'assets/live2d/haru/haru.model3.json';
 
+// Live2D models need a PIXI Ticker class to drive internal animation updates.
+let tickerRegistered = false;
+function registerLive2DTickerOnce() {
+  if (tickerRegistered) return;
+  tickerRegistered = true;
+  if (Live2DModel.registerTicker && PIXI.Ticker) {
+    Live2DModel.registerTicker(PIXI.Ticker);
+    console.log('[HaruAvatar] Live2D ticker registered');
+  }
+}
+
 const MOTIONS = {
   idle: ['haru_idle_01', 'haru_idle_02', 'haru_idle_03'],
   thinking: ['haru_m_01', 'haru_m_02'],
@@ -98,15 +109,38 @@ class HaruAvatarController {
     this._app.renderer.backgroundColor = 0x000000;
     this._app.renderer.backgroundAlpha = 0;
 
-    try {
+    // Register PIXI ticker for Live2D model animation
+    registerLive2DTickerOnce();
+
+try {
       console.log('[HaruAvatar] Loading model:', MODEL_PATH);
-      this._model = await Live2DModel.from(MODEL_PATH, { autoInteract: false });
-      console.log('[HaruAvatar] Model loaded:', this._model);
+      // Specify Cubism 4 version for .moc3 model
+      this._model = await Live2DModel.from(MODEL_PATH, {
+        autoInteract: false,
+        version: 4
+      });
+      console.log('[HaruAvatar] Model loaded');
+      
+      // Get actual model bounds for proper scaling
+      const bounds = this._model.getLocalBounds();
+      const modelWidth = bounds.width;
+      const modelHeight = bounds.height;
+      
+      console.log('[HaruAvatar] Model native size:', modelWidth, 'x', modelHeight);
+      
+      // Set anchor to center for proper positioning
       this._model.anchor.set(0.5, 0.5);
       this._model.position.set(this._app.screen.width / 2, this._app.screen.height / 2);
-      this._model.scale.set(0.35);
+      
+      // Fit model to canvas with proper margins
+      this._fitModelToCanvas();
+      
       this._app.stage.addChild(this._model);
-      console.log('[HaruAvatar] Model added to stage, stage children:', this._app.stage.children.length);
+      
+      // Verify final bounds
+      const boundsAfter = this._model.getBounds();
+      console.log('[HaruAvatar] Final bounds:', `x=${boundsAfter.x.toFixed(1)}, y=${boundsAfter.y.toFixed(1)}, w=${boundsAfter.width.toFixed(1)}, h=${boundsAfter.height.toFixed(1)}`);
+      console.log('[HaruAvatar] Canvas:', this._app.screen.width, 'x', this._app.screen.height);
 
       this._model.on('hit', (hitAreas) => {
         console.log('[HaruAvatar] Hit areas:', hitAreas);
@@ -114,7 +148,6 @@ class HaruAvatarController {
 
       this._resizeHandler = () => this._handleResize(container);
       window.addEventListener('resize', this._resizeHandler);
-      this._handleResize(container);
 
       this._initialized = true;
       console.log('[HaruAvatar] Model ready');
@@ -132,6 +165,41 @@ class HaruAvatarController {
     const h = container.clientHeight;
     this._app.renderer.resize(w, h);
     this._model.position.set(w / 2, h / 2);
+    this._fitModelToCanvas();
+  }
+
+  /**
+   * Calculate and apply the proper scale to fit the model within the canvas
+   * with comfortable margins.
+   * Uses actual model bounds to calculate proper scale.
+   */
+  _fitModelToCanvas() {
+    if (!this._model || !this._app) return;
+    
+    const w = this._app.screen.width;
+    const h = this._app.screen.height;
+    
+    // Get actual model bounds (in model's local coordinate space)
+    const bounds = this._model.getLocalBounds();
+    const modelWidth = bounds.width;
+    const modelHeight = bounds.height;
+    
+    // Target: fit model within 85% of canvas (leave ~7.5% margin on each side)
+    const marginRatio = 0.85;
+    const availableWidth = w * marginRatio;
+    const availableHeight = h * marginRatio;
+    
+    // Calculate scale to fit within available space while preserving aspect ratio
+    const scaleX = availableWidth / modelWidth;
+    const scaleY = availableHeight / modelHeight;
+    const scale = Math.min(scaleX, scaleY);
+    
+    this._model.scale.set(scale);
+    
+    // Log final bounds after scaling
+    const scaledWidth = modelWidth * scale;
+    const scaledHeight = modelHeight * scale;
+    console.log('[HaruAvatar] Scale:', scale.toFixed(4), '| Model:', modelWidth, 'x', modelHeight, '| Scaled:', scaledWidth.toFixed(1), 'x', scaledHeight.toFixed(1), '| Canvas:', w, 'x', h);
   }
 
   playIdle() {
@@ -227,8 +295,9 @@ class HaruAvatarController {
       this._frequencyData = new Uint8Array(this._analyser.frequencyBinCount);
       this._isSpeaking = true;
 
-      const mouthParam = 'ParamMouthOpenY';
-      const formParam = 'ParamMouthForm';
+      // Use correct parameter IDs from the model (haru.cdi3.json)
+      const mouthParam = 'PARAM_MOUTH_OPEN_Y';
+      const formParam = 'PARAM_MOUTH_FORM';
 
       const updateViseme = () => {
         if (!this._isSpeaking || !this._analyser || !this._model) return;
