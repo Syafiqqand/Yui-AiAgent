@@ -81,10 +81,15 @@ async function loadAppConfig() {
   const fileThinking = fileConfig.thinking || {};
   const envServerUrl = process.env.KOKORO_TTS_SERVER_URL || process.env.KOKORO_TTS_URL;
 
+  // TTS_PROVIDER env var overrides config file engine setting.
+  const resolvedEngine = (process.env.TTS_PROVIDER || fileTts.engine || DEFAULT_TTS_CONFIG.engine)
+    .trim()
+    .toLowerCase();
+
   return {
     tts: {
       enabled: parseBoolean(process.env.TTS_ENABLED, fileTts.enabled ?? DEFAULT_TTS_CONFIG.enabled),
-      engine: "kokoro",
+      engine: resolvedEngine,
       serverUrl: normalizeServerUrl(envServerUrl || fileTts.serverUrl || DEFAULT_TTS_CONFIG.serverUrl),
       fallbackToTextOnly: parseBoolean(
         process.env.TTS_FALLBACK_TO_TEXT_ONLY,
@@ -373,44 +378,45 @@ ipcMain.handle("weather:fetch", async (_event, payload = {}) => {
   }
 });
 
-// Kokoro local TTS handler.
+// Local TTS handler (Kokoro / Piper).
 // Expects a local TTS server that returns WAV audio bytes.
+// IPC channel name kept as "tts:kokoroSynthesize" for backward compatibility.
 ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
   const {
     text,
     voice = "af_heart",
     speed = 1.0,
     language = "id",
-    engine = "kokoro",
   } = payload;
 
   try {
     if (!text || typeof text !== "string") {
-      throw new Error("[Kokoro TTS] No text provided.");
+      throw new Error("[TTS] No text provided.");
     }
 
     const appConfig = await loadAppConfig();
     const ttsConfig = appConfig.tts;
 
     if (!ttsConfig.enabled) {
-      throw new Error("[Kokoro TTS] Realtime TTS is disabled.");
+      throw new Error("[TTS] Realtime TTS is disabled.");
     }
 
+    const activeEngine = ttsConfig.engine || "kokoro";
     const healthUrl = buildTtsUrl(ttsConfig.serverUrl, "/health");
     const endpoint = buildTtsUrl(ttsConfig.serverUrl, "/tts");
 
-    console.log("[Kokoro TTS] Synthesizing locally.", {
+    console.log(`[TTS] Synthesizing locally via ${activeEngine}.`, {
       textLength: text.length,
       voice,
       speed,
       language,
-      engine,
+      engine: activeEngine,
       serverUrl: ttsConfig.serverUrl,
     });
 
     const healthResponse = await fetchWithTimeout(healthUrl, {}, 1500);
     if (!healthResponse.ok) {
-      throw new Error(`[Kokoro TTS] Health check returned ${healthResponse.status}.`);
+      throw new Error(`[TTS] Health check returned ${healthResponse.status}.`);
     }
 
     const response = await fetchWithTimeout(endpoint, {
@@ -419,13 +425,13 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
         "Content-Type": "application/json",
         Accept: "audio/wav",
       },
-      body: JSON.stringify({ text, voice, speed, language, engine }),
+      body: JSON.stringify({ text, voice, speed, language, engine: activeEngine }),
     }, 30000);
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
       throw new Error(
-        `[Kokoro TTS] Server returned ${response.status}: ${errorBody || response.statusText}`,
+        `[TTS] Server returned ${response.status}: ${errorBody || response.statusText}`,
       );
     }
 
@@ -437,7 +443,7 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
       console.log("[TTS] generated output:", tempOutputPath);
     }
 
-    console.log("[Kokoro TTS] Audio ready.", { bytes: audioBuffer.length });
+    console.log(`[TTS] Audio ready (${activeEngine}).`, { bytes: audioBuffer.length });
 
     // Convert Buffer to a plain array so it can travel over Electron IPC.
     // The renderer reconstructs it as a Uint8Array for audio playback.
@@ -446,7 +452,7 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
       tempOutputPath,
     };
   } catch (error) {
-    console.warn("[Kokoro TTS] Synthesis unavailable:", error);
+    console.warn("[TTS] Synthesis unavailable:", error);
     throw error;
   }
 });

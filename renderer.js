@@ -1,6 +1,17 @@
 // Renderer process logic lives here.
 // This file controls the idle animation playback system.
 
+// -------------------------------------------------
+// Avatar 3D adapter — thin wrappers around window.avatar3d.
+// window.avatar3d is set by src/avatar/avatar-init.js (ES module).
+// Using optional chaining so calls are no-ops if module is not ready yet.
+// -------------------------------------------------
+function avatarPlayIdle()     { window.avatar3d?.playIdle(); }
+function avatarPlayThinking() { window.avatar3d?.playThinking(); }
+function avatarPlayTalking()  { window.avatar3d?.playTalking(); }
+
+// Legacy video element references (elements no longer in DOM; kept to avoid
+// ReferenceErrors in code paths that haven’t been removed yet).
 const videoA = document.querySelector(".idle-video--a");
 const videoB = document.querySelector(".idle-video--b");
 
@@ -554,6 +565,9 @@ function startThinkingState(nextState = "thinking") {
   console.log("[Thinking] start");
   syncPoseButtonsEnabled();
 
+  // 3D avatar: switch to thinking animation.
+  avatarPlayThinking();
+
   if (getThinkingConfig().enabled === false) {
     return;
   }
@@ -570,6 +584,11 @@ async function stopThinkingState() {
   appState = "idle";
   await stopThinkingAnimationLoop();
   syncPoseButtonsEnabled();
+
+  // 3D avatar: return to idle (unless speaking is about to start).
+  if (appState === "idle") {
+    avatarPlayIdle();
+  }
 }
 
 function setPoseButtonsEnabled(enabled) {
@@ -674,6 +693,9 @@ function startSpeaking() {
   syncPoseButtonsEnabled();
   const firstSpeak = pickSpeakingKey();
   beginTransitionToClip(firstSpeak, { force: true });
+
+  // 3D avatar: switch to talking animation.
+  avatarPlayTalking();
 }
 
 // Return to idle mode after speaking finishes.
@@ -686,6 +708,9 @@ function stopSpeaking() {
   appState = "idle";
   beginTransitionToClip("idle-main", { force: true });
   syncPoseButtonsEnabled();
+
+  // 3D avatar: return to idle.
+  avatarPlayIdle();
 }
 
 preloadVideos();
@@ -827,7 +852,6 @@ async function loadEnvConfig() {
       tts: {
         ...DEFAULT_TTS_CONFIG,
         ...(values?.TTS_CONFIG || {}),
-        engine: "kokoro",
       },
       thinking: {
         ...DEFAULT_THINKING_CONFIG,
@@ -858,7 +882,8 @@ function getTtsConfig() {
 
 function isRealtimeTtsEnabled() {
   const ttsConfig = getTtsConfig();
-  return ttsConfig.enabled === true && ttsConfig.engine === "kokoro";
+  const supportedEngines = ["kokoro", "piper"];
+  return ttsConfig.enabled === true && supportedEngines.includes(ttsConfig.engine);
 }
 
 function getThinkingConfig() {
@@ -1018,23 +1043,23 @@ async function tryKokoroTts(text) {
     throw new Error("[Kokoro TTS] Realtime TTS is disabled.");
   }
 
-  console.log("[Using Kokoro local TTS]", { textLength: text.length });
+  console.log("[Using local TTS]", { engine: getTtsConfig().engine, textLength: text.length });
 
   const result = await window.kokoroTts.synthesize({
     text,
     voice: "af_heart",
     speed: 1.0,
     language: "id",
-    engine: "kokoro",
+    engine: getTtsConfig().engine,
   });
 
   const rawArray = Array.isArray(result) ? result : result?.audioBytes;
   if (!Array.isArray(rawArray)) {
-    throw new Error("[Kokoro TTS] Invalid audio response.");
+    throw new Error("[TTS] Invalid audio response.");
   }
 
   const uint8 = new Uint8Array(rawArray);
-  console.log("[Kokoro TTS] Audio received.", { bytes: uint8.byteLength });
+  console.log("[TTS] Audio received.", { bytes: uint8.byteLength });
   return {
     audioBuffer: uint8.buffer,
     tempOutputPath: result?.tempOutputPath || "",
@@ -1093,8 +1118,8 @@ async function requestSpeech(text, sourceLabel) {
   } catch (error) {
     console.warn("[Kokoro TTS] Falling back to text-only mode.", error);
     const fallbackMessage = getTtsConfig().fallbackToTextOnly
-      ? "Text-only mode. Kokoro unavailable."
-      : "Kokoro TTS unavailable.";
+      ? "Text-only mode. TTS unavailable."
+      : "TTS unavailable.";
     setStatus(fallbackMessage);
     stopSpeaking();
     setTtsBusy(false);
@@ -1559,7 +1584,7 @@ async function requestGroqResponse(userMessage) {
       console.warn("[TTS] failed, fallback to text-only", ttsError);
       await stopThinkingState();
       replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
-      setStatus("Text-only mode. Kokoro unavailable.");
+      setStatus("Text-only mode. TTS unavailable.");
       setChatBusy(false);
       setTtsBusy(false);
     }
@@ -1616,4 +1641,8 @@ ensurePersonalityLoaded();
 ensureEnvLoaded();
 syncPoseButtonsEnabled();
 
-
+// When avatar3d module signals it's ready, make sure we're in idle state.
+document.addEventListener('avatar3d:ready', () => {
+  avatarPlayIdle();
+  console.log('[Avatar3D] Ready event received, idle playing.');
+});

@@ -8,6 +8,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
+
+    <!-- Import map: resolve three.js module specifiers to local node_modules files. -->
+    <!-- Electron can load file:// paths via importmap in the renderer process. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.min.js",
+          "three/addons/": "./node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
     <div class="app-shell">
@@ -16,27 +27,14 @@
       <section class="avatar-stage">
         <!-- Pose controls pinned to top-right of stage -->
         <nav class="pose-controls" aria-label="Pose animations">
-          <button class="pose-button" id="poseBtn1" type="button" data-pose="pose-1">Pose 1</button>
-          <button class="pose-button" id="poseBtn2" type="button" data-pose="pose-2">Pose 2</button>
-          <button class="pose-button" id="poseBtn3" type="button" data-pose="pose-3">Pose 3</button>
+          <button class="pose-button" id="poseBtn1" type="button" data-pose="pose-1" disabled title="Pose animations coming soon">Pose 1</button>
+          <button class="pose-button" id="poseBtn2" type="button" data-pose="pose-2" disabled title="Pose animations coming soon">Pose 2</button>
+          <button class="pose-button" id="poseBtn3" type="button" data-pose="pose-3" disabled title="Pose animations coming soon">Pose 3</button>
         </nav>
 
-        <!-- Video stage for idle/speaking/thinking animations -->
+        <!-- 3D avatar canvas — replaces the old video elements -->
         <main class="stage">
-          <video
-            class="idle-video idle-video--a"
-            autoplay
-            muted
-            playsinline
-            preload="auto"
-          ></video>
-          <video
-            class="idle-video idle-video--b"
-            autoplay
-            muted
-            playsinline
-            preload="auto"
-          ></video>
+          <canvas id="avatar-canvas"></canvas>
         </main>
 
         <!-- Status pill at bottom-left -->
@@ -80,7 +78,10 @@
 
     </div>
 
-    <!-- Renderer script for UI logic -->
+    <!-- 3D Avatar module — must load before renderer.js so window.avatar3d is set. -->
+    <script type="module" src="src/avatar/avatar-init.js"></script>
+
+    <!-- Renderer script for UI/chat/TTS logic -->
     <script src="renderer.js"></script>
   </body>
 </html>

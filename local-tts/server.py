@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from time import perf_counter
 
@@ -5,14 +6,40 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from engines.kokoro_engine import KokoroEngine
-
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 
+# Determine which TTS engine to load based on environment variable.
+# Default changed to "piper" to temporarily disable Kokoro.
+TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "piper").strip().lower()
+
 app = FastAPI(title="Yui Local TTS")
-kokoro_engine = KokoroEngine(OUTPUT_DIR)
+
+# Lazy-loaded engine instance — only the active provider is loaded.
+_engine = None
+
+
+def _get_engine():
+    global _engine
+
+    if _engine is not None:
+        return _engine
+
+    if TTS_PROVIDER == "piper":
+        from engines.piper_engine import PiperEngine
+
+        print(f"[Yui TTS Server] Loading Piper engine...")
+        _engine = PiperEngine(OUTPUT_DIR)
+    else:
+        # Temporarily disable Kokoro as requested
+        raise RuntimeError(
+            "[Yui TTS Server] Kokoro engine is temporarily disabled. "
+            "Please configure the system to use Piper."
+        )
+
+    print(f"[Yui TTS Server] Engine ready: {TTS_PROVIDER}")
+    return _engine
 
 
 class TtsRequest(BaseModel):
@@ -25,7 +52,7 @@ class TtsRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "provider": TTS_PROVIDER}
 
 
 @app.post("/tts")
@@ -52,7 +79,8 @@ def synthesize_tts(request: TtsRequest):
     )
 
     try:
-        output_path = kokoro_engine.synthesize(
+        active_engine = _get_engine()
+        output_path = active_engine.synthesize(
             text=text,
             voice=request.voice,
             speed=request.speed,
@@ -91,12 +119,25 @@ def synthesize_tts(request: TtsRequest):
 
 
 def _select_engine(engine_name: str, language: str) -> str:
-    if engine_name in {"auto", "kokoro"}:
-        return "kokoro"
+    # If client requests kokoro, explicitly fail with a debug error
+    if engine_name == "kokoro":
+        raise HTTPException(
+            status_code=400,
+            detail="Kokoro engine is temporarily disabled. Please use Piper."
+        )
+
+    # Accept "auto" or "piper" — always route to the active provider (which is now piper by default).
+    if engine_name in {"auto", "piper"}:
+        if TTS_PROVIDER == "kokoro":
+            raise HTTPException(
+                status_code=400,
+                detail="Kokoro engine is temporarily disabled. Please use Piper."
+            )
+        return TTS_PROVIDER
 
     raise HTTPException(
         status_code=400,
-        detail='Unsupported engine. Use "auto" or "kokoro".',
+        detail='Unsupported engine. Use "auto" or "piper".',
     )
 
 

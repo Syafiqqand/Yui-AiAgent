@@ -1,7 +1,7 @@
 {
   "tts": {
     "enabled": true,
-    "engine": "kokoro",
+    "engine": "piper",
     "serverUrl": "http://127.0.0.1:5005",
     "fallbackToTextOnly": true
   },

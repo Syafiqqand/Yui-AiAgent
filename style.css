@@ -79,35 +79,27 @@ body {
    ============================================================ */
 .avatar-stage {
   position: relative;
-  background: #ffffff;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(100, 60, 180, 0.28) 0%, transparent 70%),
+    linear-gradient(170deg, #0e0b1a 0%, #18103a 45%, #1e1448 100%);
   overflow: hidden;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(80, 50, 140, 0.25);
 }
 
 .stage {
   width: 100%;
   height: 100%;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
 }
 
-.idle-video {
+/* 3D avatar canvas — fills the stage with a transparent background. */
+#avatar-canvas {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  position: absolute;
-  top: 0;
-  left: 0;
-  opacity: 0;
-  transition: opacity 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  display: block;
+  background: transparent;
   pointer-events: none;
-  will-change: opacity;
-}
-
-.idle-video.is-active {
-  opacity: 1;
 }
 
 /* ---- Pose controls ---- */
@@ -124,27 +116,28 @@ body {
 .pose-button {
   min-width: 72px;
   padding: 7px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-pill);
-  background: var(--bg-pose-btn);
-  color: var(--text-primary);
+  background: rgba(20, 12, 50, 0.55);
+  color: rgba(255, 255, 255, 0.75);
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-btn);
-  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, color 140ms ease;
   text-align: center;
 }
 
 .pose-button:hover {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: var(--accent-light);
+  background: rgba(100, 60, 200, 0.5);
+  border-color: rgba(160, 120, 255, 0.5);
+  color: #ffffff;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(124, 92, 191, 0.18);
+  box-shadow: 0 4px 16px rgba(100, 60, 200, 0.35);
 }
 
 .pose-button:active {
@@ -152,7 +145,7 @@ body {
 }
 
 .pose-button:disabled {
-  opacity: 0.45;
+  opacity: 0.32;
   cursor: default;
   transform: none;
   box-shadow: none;
@@ -167,12 +160,12 @@ body {
   align-items: center;
   gap: 7px;
   padding: 6px 14px 6px 10px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(14, 9, 30, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-pill);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-btn);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
   z-index: 10;
   max-width: 280px;
 }
@@ -195,7 +188,7 @@ body {
 .status-label {
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.65);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
