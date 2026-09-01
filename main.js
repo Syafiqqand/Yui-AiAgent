@@ -199,14 +199,27 @@ function createWindow() {
     minHeight: 650,
     backgroundColor: "#ffffff",
     webPreferences: {
-      // Keep the renderer isolated for safety and future expansion.
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
       preload: path.join(__dirname, "preload.js"),
     },
   });
 
   win.loadFile("index.html");
+
+  win.webContents.on("console-message", (_event, level, message) => {
+    const tags = ["log", "info", "warn", "error", "debug"];
+    console.log(`[Renderer:${tags[level] || level}] ${message}`);
+  });
+
+  win.webContents.on("render-process-gone", (_event, webContents, details) => {
+    console.error("[Electron] Render process gone:", details);
+  });
+
+  win.webContents.on("uncaught-exception", (_event, error) => {
+    console.error("[Electron] Uncaught exception in renderer:", error);
+  });
 
   return win;
 }

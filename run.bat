@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 set "ELECTRON_RUN_AS_NODE="
 
-echo Starting Yui in text-only mode...
+echo Starting Yui (text-only mode)...
 call npm.cmd run dev
 
 if errorlevel 1 (

@@ -18,7 +18,11 @@
     "dotenv": "^16.6.1",
     "electron": "^42.0.1",
     "groq-sdk": "^1.2.0",
-    "playwright": "^1.60.0",
-    "three": "^0.184.0"
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "6.5.10",
+    "playwright": "^1.60.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

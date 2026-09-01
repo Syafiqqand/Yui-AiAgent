@@ -79,11 +79,9 @@ body {
    ============================================================ */
 .avatar-stage {
   position: relative;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(100, 60, 180, 0.28) 0%, transparent 70%),
-    linear-gradient(170deg, #0e0b1a 0%, #18103a 45%, #1e1448 100%);
+  background: var(--bg-stage);
   overflow: hidden;
-  border-right: 1px solid rgba(80, 50, 140, 0.25);
+  border-right: 1px solid var(--border-panel);
 }
 
 .stage {
@@ -93,8 +91,8 @@ body {
   overflow: hidden;
 }
 
-/* 3D avatar canvas — fills the stage with a transparent background. */
-#avatar-canvas {
+/* Live2D avatar canvas — fills the stage with a transparent background. */
+#live2d-canvas {
   width: 100%;
   height: 100%;
   display: block;
@@ -116,10 +114,10 @@ body {
 .pose-button {
   min-width: 72px;
   padding: 7px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--border-panel);
   border-radius: var(--radius-pill);
-  background: rgba(20, 12, 50, 0.55);
-  color: rgba(255, 255, 255, 0.75);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: 500;
@@ -127,17 +125,17 @@ body {
   cursor: pointer;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-btn);
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, color 140ms ease;
   text-align: center;
 }
 
 .pose-button:hover {
-  background: rgba(100, 60, 200, 0.5);
-  border-color: rgba(160, 120, 255, 0.5);
+  background: var(--accent);
+  border-color: var(--accent-light);
   color: #ffffff;
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(100, 60, 200, 0.35);
+  box-shadow: 0 4px 16px rgba(124, 92, 191, 0.35);
 }
 
 .pose-button:active {
@@ -160,12 +158,12 @@ body {
   align-items: center;
   gap: 7px;
   padding: 6px 14px 6px 10px;
-  background: rgba(14, 9, 30, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-panel);
   border-radius: var(--radius-pill);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-btn);
   z-index: 10;
   max-width: 280px;
 }
@@ -188,7 +186,7 @@ body {
 .status-label {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

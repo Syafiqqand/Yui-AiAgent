@@ -38,3 +38,4 @@ contextBridge.exposeInMainWorld("yuiMusic", {
   openYouTube: () => ipcRenderer.invoke("music:open-youtube"),
   playYouTube: (query) => ipcRenderer.invoke("music:play-youtube", { query }),
 });
+
