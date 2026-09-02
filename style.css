@@ -100,8 +100,8 @@ body {
   pointer-events: none;
 }
 
-/* ---- Pose controls ---- */
-.pose-controls {
+/* ---- Test controls (Thinking / Talking) ---- */
+.test-controls {
   position: absolute;
   top: 16px;
   right: 16px;
@@ -111,8 +111,8 @@ body {
   z-index: 10;
 }
 
-.pose-button {
-  min-width: 72px;
+.test-button {
+  min-width: 84px;
   padding: 7px 14px;
   border: 1px solid var(--border-panel);
   border-radius: var(--radius-pill);
@@ -130,7 +130,7 @@ body {
   text-align: center;
 }
 
-.pose-button:hover {
+.test-button:hover {
   background: var(--accent);
   border-color: var(--accent-light);
   color: #ffffff;
@@ -138,11 +138,18 @@ body {
   box-shadow: 0 4px 16px rgba(124, 92, 191, 0.35);
 }
 
-.pose-button:active {
+.test-button:active {
   transform: translateY(0);
 }
 
-.pose-button:disabled {
+.test-button.active {
+  background: var(--accent);
+  border-color: var(--accent-light);
+  color: #ffffff;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.test-button:disabled {
   opacity: 0.32;
   cursor: default;
   transform: none;

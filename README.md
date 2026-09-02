@@ -1,35 +1,36 @@
 # Yui-AiAgent
 
-Yui-AiAgent is an Electron-based VTuber AI companion with Groq chat, optional local Kokoro TTS, text-only fallback, and smooth idle/speaking animations. It is designed as a beginner-friendly desktop companion with a clean portrait layout.
+Yui-AiAgent is an Electron-based VTuber AI companion powered by B.AI (MiMo-V2.5), with local Supertonic 3 TTS (voice F1, Indonesian), and smooth idle/thinking/talking animations. It is designed as a beginner-friendly desktop companion with a clean portrait layout.
 
 ## Features
 
-- Groq AI chat responses
-- Optional Kokoro realtime text-to-speech
-- Text-only mode when no local TTS server is running
-- Thinking state with alternating thinking animations while responses are prepared
-- Pose buttons in the top-right corner for `Pose 1`, `Pose 2`, and `Pose 3`
-- Idle sound feature postponed for future curated local assets
-- VTuber idle and speaking animations with smooth transitions
+- B.AI chat responses (MiMo-V2.5 model)
+- Local Supertonic 3 TTS (F1 voice, Indonesian language)
+- Automatic Supertonic server startup managed by Electron
+- Thinking / Talking / Idle avatar states with smooth transitions
+- Live2D Haru avatar with mouth lip-sync during talking
+- YouTube Music integration via Playwright
+- Weather and public-holiday context injection
 
 ## Setup
 
 ### Requirements
 
 - Node.js 18+ recommended
-- Python 3.12 for optional local TTS
-- A Groq API key
-- Kokoro installed in `local-tts\.venv` if realtime voice is enabled
+- Python 3.12
+- A B.AI API key
+- Supertonic 3 installed in `.venv` (auto-downloaded on first use)
 
 ### Install
 
 ```bash
 npm install
+pip install "supertonic[serve]"
 ```
 
 ### Configure API keys
 
-Copy the example file and fill in your Groq key:
+Copy the example file and fill in your B.AI key:
 
 ```bash
 copy .env.example .env
@@ -37,13 +38,19 @@ copy .env.example .env
 
 Then edit `.env` and set:
 
-- `GROQ_API_KEY`
+- `BAI_API_KEY`
+- `BAI_BASE_URL` (default: `https://api.b.ai/v1`)
+- `BAI_MODEL` (default: `mimo-v2.5`)
 
-Optional realtime Kokoro TTS:
+Supertonic TTS configuration (with defaults):
 
-- `TTS_ENABLED`
-- `KOKORO_TTS_SERVER_URL`
-- `TTS_FALLBACK_TO_TEXT_ONLY`
+- `TTS_ENABLED` (default: `true`)
+- `SUPERTONIC_HOST` (default: `127.0.0.1`)
+- `SUPERTONIC_PORT` (default: `7788`)
+- `SUPERTONIC_VOICE` (default: `F1`)
+- `SUPERTONIC_LANG` (default: `id`)
+- `SUPERTONIC_STEPS` (default: `8`)
+- `SUPERTONIC_SPEED` (default: `1.05`)
 
 The `.env` file is ignored by Git, so secrets will not be uploaded. You can also tweak the assistant personality in [personality.md](personality.md).
 
@@ -53,57 +60,53 @@ The `.env` file is ignored by Git, so secrets will not be uploaded. You can also
 npm start
 ```
 
-### Windows Launchers
-
-Text-only mode:
-
-- Double click `start-yui.bat`
-- Starts Electron only
-- Does not start Kokoro
-
-Voice mode:
-
-- Set `tts.enabled` to `true` in [config/app-config.json](config/app-config.json)
-- Double click `start-yui-voice.bat`
-- Starts Kokoro in a separate PowerShell window, waits briefly, then starts Electron
+The Electron app will automatically:
+1. Check if a Supertonic server is running on `http://127.0.0.1:7788`
+2. If not, spawn the Supertonic server from `.venv\Scripts\python.exe local-tts\supertonic_server.py`
+3. Wait until the server is ready
+4. Start the Electron window
 
 ## Voice
 
-The app starts in text-only mode by default and does not require a local TTS server. Kokoro is the only optional realtime TTS engine. Enable it in [config/app-config.json](config/app-config.json) or with `.env`, then run the local server.
+Supertonic 3 is the only TTS engine. It runs locally with no cloud dependencies. On first use, the model files are auto-downloaded and cached.
 
-While Yui prepares a response, the chat shows a temporary thinking message and alternates `thinking-1` / `thinking-2` animations. In voice mode, the final text is held until Kokoro audio is ready, then the text appears and playback starts together. If Kokoro is unavailable, Yui falls back to text-only.
+The Electron app manages the Supertonic server lifecycle:
+- Auto-spawns on startup if not already running
+- Reuses existing server if one is detected
+- Cleans up child process on app exit
+- TTS requests include voice F1 and Indonesian language by default
 
-Pose buttons are available in the top-right corner. `Pose 1`, `Pose 2`, and `Pose 3` play their corresponding pose animations from the `assets` folder, then return Yui to the normal idle flow.
+While Yui prepares a response, the chat shows a temporary thinking message and the avatar enters the Thinking state. When the B.AI response arrives, the avatar switches to Talking and Supertonic generates audio, which is then played. When playback ends, the temporary WAV is automatically deleted and the avatar returns to Idle.
 
-Quick Kokoro smoke test:
+Quick Supertonic smoke test:
 
 ```powershell
-.\local-tts\.venv\Scripts\Activate.ps1
-python local-tts/test_kokoro.py
+.\.venv\Scripts\Activate.ps1
+python local-tts/test_tts_complete.py
 ```
 
-Run Kokoro server:
+Run Supertonic server manually (optional):
 
 ```powershell
 cd local-tts
-.\.venv\Scripts\Activate.ps1
-python server.py
+..\.venv\Scripts\Activate.ps1
+python supertonic_server.py
 ```
 
 Idle sound playback is postponed and disabled for now. The placeholder folder is `assets/voices/idle/`; future curated idle sounds can be placed there later as local static files. Idle sounds must not be generated during runtime.
-
-F5-TTS Indo was removed from runtime and project integration after testing because it was too slow for realtime chat in the subprocess CLI setup. Edge TTS and ElevenLabs are not used.
 
 ## Technologies Used
 
 - Electron
 - JavaScript, HTML, CSS
-- Groq API for chat
-- Kokoro for optional local TTS
+- B.AI (MiMo-V2.5) for chat
+- Supertonic 3 for local TTS (F1 voice, Indonesian)
+- Live2D Cubism + pixi-live2d-display for the Haru avatar
 
 ## Current Features
 
-- Groq AI chat
-- Optional Kokoro local TTS bridge with text-only fallback
-- VTuber idle/speaking animations
+- B.AI (MiMo-V2.5) chat
+- Local Supertonic 3 TTS (F1, Indonesian) with auto-server management
+- Live2D Haru avatar with Idle / Thinking / Talking states
+- Lip-sync driven by audio amplitude
 - Electron desktop app

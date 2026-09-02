@@ -11,7 +11,7 @@ Stack dan fitur utama:
 - Electron app untuk desktop Windows.
 - Live2D untuk avatar.
 - TTS lokal/online untuk suara.
-- Kokoro TTS adalah TTS utama.
+- **Supertonic 3** adalah TTS utama.
 - Provider TTS lama sudah tidak dipakai.
 - Idle voice wajib memakai audio lokal/pre-generated, bukan realtime TTS di setiap idle loop.
 
@@ -21,7 +21,7 @@ Stack dan fitur utama:
 - Project root: `C:\Project Gabut\AI Agent Live2D`.
 - Python local TTS venv: `local-tts\.venv`.
 - Python version: 3.12.
-- Kokoro sudah terinstall di venv.
+- **Supertonic 3 sudah terinstall di venv**.
 - Node/Electron project sudah ada.
 
 Gunakan path relatif dari project root untuk kode dan dokumentasi. Hindari hardcode path absolut kecuali benar-benar diperlukan untuk instruksi lokal.
@@ -33,17 +33,17 @@ Struktur yang dituju:
 - `local-tts/`
   - Python server untuk local TTS.
   - Script generator audio.
-  - Test/utilitas Kokoro.
+  - Test/utilitas **Supertonic**.
 - `src/main/voice/`
   - Wrapper JavaScript untuk TTS pipeline.
-  - Orkestrasi Kokoro local TTS dan audio idle lokal.
+  - Orkestrasi **Supertonic** local TTS dan audio idle lokal.
 - `assets/voices/idle/`
   - Audio idle lokal/pre-generated.
   - Jangan generate idle voice secara realtime di idle loop.
 
 Prioritas pipeline suara:
 
-1. Kokoro local TTS.
+1. **Supertonic 3** local TTS.
 2. Idle voice dari file audio lokal yang sudah dibuat sebelumnya.
 
 ## Coding Rules
@@ -61,13 +61,13 @@ Prioritas pipeline suara:
 - Jaga file baru tetap fokus pada satu tanggung jawab.
 - Hindari perubahan besar pada perilaku UI, model Live2D, atau asset tanpa permintaan spesifik.
 
-## Local TTS Rules
+## Supertonic TTS Rules
 
-- Jalankan Kokoro melalui venv di `local-tts\.venv`.
+- Jalankan **Supertonic 3** melalui venv di `local-tts\.venv`.
 - Script Python harus portable dari project root.
 - Generator audio idle harus menulis output ke folder asset lokal, misalnya `assets/voices/idle/`.
-- Idle voice tidak boleh memanggil Kokoro berulang dalam loop idle.
-- Jika Kokoro gagal, laporkan error yang jelas dan fallback hanya pada jalur yang memang tersedia.
+- Idle voice tidak boleh memanggil Supertonic berulang dalam loop idle.
+- Jika Supertonic gagal, laporkan error yang jelas dan fallback hanya pada jalur yang memang tersedia.
 
 ## Important Commands
 
@@ -83,10 +83,10 @@ Cek Python:
 python --version
 ```
 
-Test Kokoro:
+Test Supertonic 3:
 
 ```powershell
-python local-tts/test_kokoro.py
+python local-tts/test_tts_complete.py
 ```
 
 Install/run Electron sesuai script di `package.json`. Jangan mengubah dependency atau lockfile kecuali tugas memang membutuhkan itu.
@@ -98,7 +98,7 @@ Setelah mengubah Python local TTS:
 ```powershell
 .\local-tts\.venv\Scripts\Activate.ps1
 python --version
-python local-tts/test_kokoro.py
+python local-tts/test_tts_complete.py
 ```
 
 Setelah mengubah Electron/JS:

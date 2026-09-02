@@ -1,7 +1,7 @@
-kokoro>=0.9.4
-piper-tts>=1.5.0
-soundfile
-fastapi
-uvicorn
-pydantic
-numpy
+supertonic>=1.3.1
+fastapi>=0.141.0
+uvicorn>=0.52.0
+pydantic>=2.13.0
+numpy>=2.0.0
+soundfile>=0.14.0
+python-dotenv>=1.2.0

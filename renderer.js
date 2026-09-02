@@ -11,275 +11,48 @@ console.log('[Renderer] window.haruAvatar available:', !!window.haruAvatar);
 // window.haruAvatar is set by src/avatar/haru-init.js (ES module).
 // Using optional chaining so calls are no-ops if module is not ready yet.
 // -------------------------------------------------
-function avatarPlayIdle()     { window.haruAvatar?.playIdle(); }
-function avatarPlayThinking() { window.haruAvatar?.playThinking(); }
-function avatarPlayTalking(audioElement) { window.haruAvatar?.playTalking(audioElement); }
+function avatarSetState(state, options) { window.haruAvatar?.setState(state, options); }
+function avatarPlayIdle()     { window.haruAvatar?.setState('idle'); }
+function avatarPlayThinking() { window.haruAvatar?.setState('thinking'); }
+function avatarPlayTalking(audioElement) { window.haruAvatar?.setState('talking', { audioElement }); }
+function avatarStopTalking()  { window.haruAvatar?.setState('idle'); }
 function avatarPlayExpression(name) { window.haruAvatar?.playExpression(name); }
 function avatarResetExpression() { window.haruAvatar?.resetExpression(); }
+function avatarGetState() { return window.haruAvatar?.getState(); }
 
-const THINKING_ANIMATIONS = ['thinking-1', 'thinking-2'];
-const THINKING_ANIMATION_DURATION_MS = 5000;
-const POSE_ANIMATIONS = ['pose-1', 'pose-2', 'pose-3'];
-const POSE_ANIMATION_DURATION_MS = 5000;
 
-let mode = 'idle';
+// -------------------------------------------------
+// UI state: primary avatar state (idle | thinking | talking)
+// Manual test buttons can override automatic behavior
+// -------------------------------------------------
 let appState = 'idle';
-let thinkingAnimationIndex = 0;
-let thinkingLoopRunning = false;
-let thinkingLoopPromise = null;
-let thinkingAnimationTimeout = null;
-let resolveThinkingWait = null;
-let isPoseAnimationPlaying = false;
-let poseAnimationRunId = 0;
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function waitForThinkingDelay(ms) {
-  return new Promise((resolve) => {
-    resolveThinkingWait = resolve;
-    thinkingAnimationTimeout = window.setTimeout(() => {
-      thinkingAnimationTimeout = null;
-      resolveThinkingWait = null;
-      resolve();
-    }, ms);
-  });
-}
-
-function resolveThinkingDelay() {
-  if (thinkingAnimationTimeout) {
-    clearTimeout(thinkingAnimationTimeout);
-    thinkingAnimationTimeout = null;
-  }
-
-  if (resolveThinkingWait) {
-    const resolve = resolveThinkingWait;
-    resolveThinkingWait = null;
-    resolve();
-  }
-}
-
-function getThinkingAnimationKeys() {
-  const animations = envConfig?.thinking?.animations;
-  if (!Array.isArray(animations) || animations.length === 0) {
-    return THINKING_ANIMATIONS;
-  }
-  return animations.filter((animationKey) => animationKey);
-}
-
-function getThinkingAnimationDurationMs() {
-  const configuredDuration = Number(envConfig?.thinking?.animationDurationMs);
-  if (Number.isFinite(configuredDuration) && configuredDuration > 0) {
-    return configuredDuration;
-  }
-  return THINKING_ANIMATION_DURATION_MS;
-}
-
-function isTransientAnimationMode() {
-  return mode === 'thinking' || mode === 'pose';
-}
-
-function syncPoseButtonsEnabled() {
-  const canUsePoseButtons =
-    !ttsBusy &&
-    !chatBusy &&
-    appState !== 'thinking' &&
-    appState !== 'preparing_voice' &&
-    appState !== 'speaking' &&
-    appState !== 'pose' &&
-    mode !== 'thinking' &&
-    mode !== 'speaking' &&
-    !isPoseAnimationPlaying;
-
-  setPoseButtonsEnabled(canUsePoseButtons);
-}
-
-function setPoseButtonsEnabled(enabled) {
-  poseButtons.forEach((button) => {
-    button.disabled = !enabled;
-  });
-}
-
-function returnToIdleAfterPose() {
-  if (mode !== 'pose') return;
-  mode = 'idle';
-  appState = 'idle';
-  avatarPlayIdle();
-}
-
-async function playPoseAnimation(poseName) {
-  if (!POSE_ANIMATIONS.includes(poseName)) {
-    console.warn(`[Pose] unknown pose: ${poseName}`);
-    syncPoseButtonsEnabled();
-    return;
-  }
-
-  if (
-    isPoseAnimationPlaying ||
-    appState === 'thinking' ||
-    appState === 'preparing_voice' ||
-    appState === 'speaking' ||
-    mode === 'thinking' ||
-    mode === 'speaking'
-  ) {
-    return;
-  }
-
-  isPoseAnimationPlaying = true;
-  poseAnimationRunId += 1;
-  const runId = poseAnimationRunId;
-  appState = 'pose';
-  mode = 'pose';
-  syncPoseButtonsEnabled();
-
-  console.log(`[Pose] play ${poseName}`);
-
-  // Map pose to Haru motion
-  const motionMap = {
-    'pose-1': 'haru_m_04',
-    'pose-2': 'haru_m_05',
-    'pose-3': 'haru_m_06',
-  };
-  const motionName = motionMap[poseName];
-  if (window.haruAvatar?._model) {
-    window.haruAvatar._playMotion(motionName, false);
-  }
-
-  try {
-    await wait(500);
-    if (runId !== poseAnimationRunId || appState !== 'pose' || mode !== 'pose') return;
-    await wait(POSE_ANIMATION_DURATION_MS);
-    if (runId !== poseAnimationRunId || appState !== 'pose' || mode !== 'pose') return;
-    console.log(`[Pose] finished ${poseName}`);
-    returnToIdleAfterPose();
-  } catch (error) {
-    console.warn(`[Pose] failed ${poseName}:`, error);
-    returnToIdleAfterPose();
-  } finally {
-    if (runId === poseAnimationRunId) {
-      isPoseAnimationPlaying = false;
-      if (appState === 'pose') appState = 'idle';
-      syncPoseButtonsEnabled();
-    }
-  }
-}
-
-async function playThinkingAnimationAndWait(clipKey) {
-  console.log(`[Thinking] play ${clipKey}`);
-  avatarPlayThinking();
-  await wait(300);
-  if (!thinkingLoopRunning || mode !== 'thinking') return;
-  await waitForThinkingDelay(getThinkingAnimationDurationMs());
-  if (!thinkingLoopRunning || mode !== 'thinking') return;
-  console.log(`[Thinking] finished ${clipKey}`);
-}
-
-function startThinkingAnimationLoop() {
-  if (thinkingLoopRunning) return thinkingLoopPromise;
-  const thinkingKeys = getThinkingAnimationKeys();
-  if (thinkingKeys.length === 0) {
-    console.warn('[Thinking] no thinking animation keys configured');
-    return null;
-  }
-  thinkingLoopRunning = true;
-  thinkingAnimationIndex = 0;
-  thinkingLoopPromise = (async () => {
-    try {
-      while (thinkingLoopRunning && mode === 'thinking') {
-        const clipKey = thinkingKeys[thinkingAnimationIndex % thinkingKeys.length];
-        thinkingAnimationIndex += 1;
-        try {
-          await playThinkingAnimationAndWait(clipKey);
-        } catch (error) {
-          console.warn('[Thinking] motion failed:', clipKey, error);
-          await waitForThinkingDelay(getThinkingAnimationDurationMs());
-        }
-      }
-    } finally {
-      thinkingLoopRunning = false;
-      thinkingLoopPromise = null;
-      resolveThinkingDelay();
-      if (mode === 'thinking') {
-        mode = 'idle';
-        avatarPlayIdle();
-      }
-      console.log('[Thinking] stopped');
-    }
-  })();
-  return thinkingLoopPromise;
-}
-
-async function stopThinkingAnimationLoop() {
-  if (!thinkingLoopRunning && !thinkingLoopPromise) return;
-  console.log('[Thinking] stop requested');
-  thinkingLoopRunning = false;
-  resolveThinkingDelay();
-  if (thinkingLoopPromise) await thinkingLoopPromise;
-}
-
-function startThinkingState(nextState = 'thinking') {
-  if (appState === 'thinking' || appState === 'preparing_voice' || thinkingLoopRunning) return;
-  appState = nextState;
-  console.log('[Thinking] start');
-  syncPoseButtonsEnabled();
-  avatarPlayThinking();
-  if (getThinkingConfig().enabled === false) return;
-  mode = 'thinking';
-  startThinkingAnimationLoop();
-}
-
-async function stopThinkingState() {
-  if (mode !== 'thinking' && appState !== 'thinking' && appState !== 'preparing_voice') return;
-  appState = 'idle';
-  await stopThinkingAnimationLoop();
-  syncPoseButtonsEnabled();
-  if (appState === 'idle') avatarPlayIdle();
-}
-
-function startSpeaking(audioElement) {
-  if (mode === 'speaking') return;
-  stopThinkingAnimationLoop();
-  appState = 'speaking';
-  mode = 'speaking';
-  syncPoseButtonsEnabled();
-  avatarPlayTalking(audioElement);
-}
-
-function stopSpeaking() {
-  if (mode !== 'speaking') return;
-  mode = 'idle';
-  appState = 'idle';
-  avatarResetExpression();
-  syncPoseButtonsEnabled();
-  avatarPlayIdle();
-}
+let manualThinking = false;
+let manualTalking = false;
 
 // -------------------------------------------------
-// Groq configuration
+// B.AI configuration
 // -------------------------------------------------
-const GROQ_MODEL_ID = 'llama-3.3-70b-versatile';
+const BAI_MODEL_ID = 'mimo-v2.5';
 const DEFAULT_PERSONALITY =
   'You are Yui, a friendly virtual AI assistant. Be warm, supportive, conversational, and slightly playful. Default to English for all assistant responses unless the user explicitly requests another language. If the user asks to use Indonesian, Japanese, or any other language, follow that request. Do not switch languages merely because the user\'s message is written in another language. Use clean plain text only. Avoid markdown formatting such as bold, italic, headings, or decorative lists. Keep responses natural and easy to understand.';
 let systemPrompt = DEFAULT_PERSONALITY;
 let personalityLoadPromise = null;
 let envLoadPromise = null;
+
 const DEFAULT_TTS_CONFIG = {
-  enabled: false,
-  engine: 'kokoro',
-  serverUrl: 'http://127.0.0.1:5005',
-  fallbackToTextOnly: true,
+  enabled: true,
+  engine: 'supertonic',
+  serverUrl: 'http://127.0.0.1:7788',
+  fallbackToTextOnly: false,
 };
 const DEFAULT_THINKING_CONFIG = {
   enabled: true,
   message: 'Thinking...',
-  animations: THINKING_ANIMATIONS,
-  animationDurationMs: THINKING_ANIMATION_DURATION_MS,
 };
 let envConfig = {
-  GROQ_API_KEY: '',
+  BAI_API_KEY: '',
+  BAI_BASE_URL: 'https://api.b.ai/v1',
+  BAI_MODEL: BAI_MODEL_ID,
   WEATHERSTACK_API_KEY: '',
   CALENDARIFIC_API_KEY: '',
   tts: { ...DEFAULT_TTS_CONFIG },
@@ -290,8 +63,11 @@ const ttsForm = document.querySelector('.tts-form');
 const ttsInput = document.querySelector('#tts-input');
 const ttsButton = document.querySelector('#tts-button');
 const ttsStatus = document.querySelector('#tts-status');
-const poseButtons = document.querySelectorAll('.pose-button');
 const chatLog = document.querySelector('#chat-log');
+
+// New test buttons
+const thinkingBtn = document.querySelector('#thinkingBtn');
+const talkingBtn = document.querySelector('#talkingBtn');
 
 const chatHistory = [];
 let ttsBusy = false;
@@ -301,7 +77,6 @@ function updateUiBusy() {
   const isBusy = ttsBusy || chatBusy;
   if (ttsButton) ttsButton.disabled = isBusy;
   if (ttsInput) ttsInput.disabled = isBusy;
-  syncPoseButtonsEnabled();
 }
 
 function setTtsBusy(isBusy) { ttsBusy = isBusy; updateUiBusy(); }
@@ -348,7 +123,9 @@ async function loadEnvConfig() {
   try {
     const values = await window.env.getAll();
     envConfig = {
-      GROQ_API_KEY: values?.GROQ_API_KEY || '',
+      BAI_API_KEY: values?.BAI_API_KEY || '',
+      BAI_BASE_URL: values?.BAI_BASE_URL || 'https://api.b.ai/v1',
+      BAI_MODEL: values?.BAI_MODEL || BAI_MODEL_ID,
       WEATHERSTACK_API_KEY: values?.WEATHERSTACK_API_KEY || '',
       CALENDARIFIC_API_KEY: values?.CALENDARIFIC_API_KEY || '',
       tts: { ...DEFAULT_TTS_CONFIG, ...(values?.TTS_CONFIG || {}) },
@@ -369,7 +146,7 @@ function getEnvValue(key) { return envConfig[key] || ''; }
 function getTtsConfig() { return envConfig.tts || DEFAULT_TTS_CONFIG; }
 function isRealtimeTtsEnabled() {
   const ttsConfig = getTtsConfig();
-  const supportedEngines = ['kokoro', 'piper'];
+  const supportedEngines = ['supertonic'];
   return ttsConfig.enabled === true && supportedEngines.includes(ttsConfig.engine);
 }
 function getThinkingConfig() { return envConfig.thinking || DEFAULT_THINKING_CONFIG; }
@@ -425,9 +202,9 @@ function revokeAudioUrl() {
 }
 
 async function deleteTempTtsOutputFile(tempOutputPath) {
-  if (!tempOutputPath || !window.kokoroTts?.deleteOutputFile) return;
+  if (!tempOutputPath || !window.supertonicTts?.deleteOutputFile) return;
   try {
-    await window.kokoroTts.deleteOutputFile({ path: tempOutputPath });
+    await window.supertonicTts.deleteOutputFile({ path: tempOutputPath });
   } catch (error) {
     console.warn('[TTS] Failed to request temp output deletion:', error);
   }
@@ -482,33 +259,24 @@ async function playAudioBuffer(arrayBuffer, mimeType = 'audio/wav', tempOutputPa
 }
 
 // -------------------------------------------------
-// Primary TTS: local Kokoro/Piper via server
+// Primary TTS: Supertonic 3 (local)
 // -------------------------------------------------
-async function tryKokoroTts(text) {
-  if (!window.kokoroTts?.synthesize) throw new Error('[Kokoro TTS] Bridge not available.');
-  if (!isRealtimeTtsEnabled()) throw new Error('[Kokoro TTS] Realtime TTS is disabled.');
-  console.log('[Using local TTS]', { engine: getTtsConfig().engine, textLength: text.length });
-  const result = await window.kokoroTts.synthesize({
-    text,
-    voice: 'af_heart',
-    speed: 1.0,
-    language: 'id',
-    engine: getTtsConfig().engine,
-  });
-  const rawArray = Array.isArray(result) ? result : result?.audioBytes;
-  if (!Array.isArray(rawArray)) throw new Error('[TTS] Invalid audio response.');
-  const uint8 = new Uint8Array(rawArray);
-  console.log('[TTS] Audio received.', { bytes: uint8.byteLength });
-  return { audioBuffer: uint8.buffer, tempOutputPath: result?.tempOutputPath || '' };
-}
-
-async function prepareKokoroAudio(text) {
+async function prepareSupertonicAudio(text) {
   await ensureEnvLoaded();
   if (!isRealtimeTtsEnabled()) return null;
-  console.log('[TTS] preparing voice');
-  const audioData = await tryKokoroTts(text);
-  console.log('[TTS] audio ready');
-  return audioData;
+  console.log('[Supertonic] Preparing voice...');
+  const result = await window.supertonicTts.synthesize({
+    text,
+    voice: 'F1',
+    lang: 'id',
+    steps: 8,
+    speed: 1.05,
+  });
+  const rawArray = Array.isArray(result) ? result : result?.audioBytes;
+  if (!Array.isArray(rawArray)) throw new Error('[Supertonic] Invalid audio response.');
+  const uint8 = new Uint8Array(rawArray);
+  console.log('[Supertonic] Audio received.', { bytes: uint8.byteLength });
+  return { audioBuffer: uint8.buffer, tempOutputPath: result?.tempOutputPath || '' };
 }
 
 async function requestSpeech(text, sourceLabel) {
@@ -518,14 +286,14 @@ async function requestSpeech(text, sourceLabel) {
   if (!isRealtimeTtsEnabled()) { setStatus('Text-only mode.'); return; }
   setTtsBusy(true);
   const labelSuffix = sourceLabel ? ` (${sourceLabel})` : '';
-  setStatus(`Generating local voice${labelSuffix}...`);
+  setStatus(`Generating voice${labelSuffix}...`);
   try {
-    const audioData = await prepareKokoroAudio(text);
+    const audioData = await prepareSupertonicAudio(text);
     if (audioData) {
       await playAudioBuffer(audioData.audioBuffer, 'audio/wav', audioData.tempOutputPath);
     }
   } catch (error) {
-    console.warn('[Kokoro TTS] Falling back to text-only mode.', error);
+    console.warn('[Supertonic] TTS failed:', error);
     const fallbackMessage = getTtsConfig().fallbackToTextOnly
       ? 'Text-only mode. TTS unavailable.'
       : 'TTS unavailable.';
@@ -719,18 +487,104 @@ async function handleMusicIntent(userMessage) {
   return true;
 }
 
-// Send a chat message to Groq and speak the response.
-async function requestGroqResponse(userMessage) {
+// -------------------------------------------------
+// Avatar state transitions (automatic + manual test)
+// -------------------------------------------------
+
+function setAppState(newState, source = 'auto') {
+  if (appState === newState) return;
+  const prev = appState;
+  appState = newState;
+  console.log('[Renderer] App state:', prev, '->', newState, `(${source})`);
+}
+
+function syncTestButtons() {
+  if (thinkingBtn) {
+    thinkingBtn.classList.toggle('active', manualThinking);
+    thinkingBtn.textContent = manualThinking ? 'Thinking...' : 'Thinking';
+  }
+  if (talkingBtn) {
+    talkingBtn.classList.toggle('active', manualTalking);
+    talkingBtn.textContent = manualTalking ? 'Talking...' : 'Talking';
+  }
+}
+
+function setThinking(enabled, source = 'auto') {
+  if (enabled) {
+    manualThinking = source === 'manual';
+    if (manualTalking) return; // talking has priority
+    setAppState('thinking', source);
+    avatarPlayThinking();
+  } else {
+    if (manualThinking && source !== 'manual') return;
+    manualThinking = false;
+    setAppState('idle', source);
+    avatarPlayIdle();
+  }
+  syncTestButtons();
+}
+
+function setTalking(enabled, source = 'auto') {
+  if (enabled) {
+    manualTalking = source === 'manual';
+    setAppState('talking', source);
+    avatarPlayTalking(audioPlayer);
+  } else {
+    if (manualTalking && source !== 'manual') return;
+    manualTalking = false;
+    setAppState('idle', source);
+    avatarStopTalking();
+  }
+  syncTestButtons();
+}
+
+// Automatic flow: user message -> thinking -> talking -> idle
+async function startThinkingState() {
+  if (manualThinking || manualTalking) return;
+  if (appState === 'thinking' || appState === 'preparing_voice') return;
+  appState = 'thinking';
+  console.log('[Renderer] Auto: start thinking');
+  avatarPlayThinking();
+}
+
+async function stopThinkingState() {
+  if (manualThinking) return;
+  if (manualTalking) return; // will be handled by talking->idle
+  if (appState !== 'thinking' && appState !== 'preparing_voice') return;
+  console.log('[Renderer] Auto: stop thinking');
+  // transition handled by caller
+}
+
+function startSpeaking(audioElement) {
+  if (appState === 'speaking') return;
+  if (manualTalking) return; // manual talking mode overrides
+  appState = 'speaking';
+  console.log('[Renderer] Auto: start speaking');
+  avatarPlayTalking(audioElement);
+}
+
+function stopSpeaking() {
+  if (manualTalking) return; // manual talking mode overrides
+  if (appState !== 'speaking') return;
+  console.log('[Renderer] Auto: stop speaking');
+  appState = 'idle';
+  avatarStopTalking();
+}
+
+// -------------------------------------------------
+// Groq chat request
+// -------------------------------------------------
+async function requestBaiResponse(userMessage) {
   if (isUiBusy()) { setStatus('Busy. Please wait...'); return; }
   if (!userMessage) { setStatus('Type a message first.'); return; }
-  if (!window.groq?.generateResponse) { setStatus('Groq bridge failed to load.'); return; }
+  if (!window.bai?.generateResponse) { setStatus('B.AI bridge failed to load.'); return; }
   await ensureEnvLoaded();
-  const groqApiKey = getEnvValue('GROQ_API_KEY');
-  if (!groqApiKey) { setStatus('Set GROQ_API_KEY in .env.'); return; }
+  const baiApiKey = getEnvValue('BAI_API_KEY');
+  if (!baiApiKey) { setStatus('Set BAI_API_KEY in .env.'); return; }
   appendChatMessage('user', userMessage);
   const thinkingConfig = getThinkingConfig();
   const thinkingMessage = appendAssistantThinkingMessage(thinkingConfig.message);
-  startThinkingState('thinking');
+  startThinkingState();
   setChatBusy(true);
   await ensurePersonalityLoaded();
 
@@ -747,27 +601,32 @@ async function requestGroqResponse(userMessage) {
   contextParts.unshift(getCurrentDateTimeContext());
   if (contextParts.length > 0) contextualMessage = `${userMessage}\n\n${contextParts.join('\n')}`;
 
-  console.log('[Groq] Request start.', { textLength: userMessage.length, model: GROQ_MODEL_ID });
+  console.log('[B.AI] Request start.', { textLength: userMessage.length, model: getEnvValue('BAI_MODEL') });
   setStatus(thinkingConfig.message);
 
   try {
-    const responseText = await window.groq.generateResponse({
-      apiKey: groqApiKey, model: GROQ_MODEL_ID, systemPrompt, history: chatHistory, message: contextualMessage,
+    const responseText = await window.bai.generateResponse({
+      apiKey: baiApiKey,
+      baseUrl: getEnvValue('BAI_BASE_URL'),
+      model: getEnvValue('BAI_MODEL'),
+      systemPrompt,
+      history: chatHistory,
+      message: contextualMessage,
     });
     const sanitizedResponse = sanitizeResponse(responseText || '');
     const cleanResponse = sanitizedResponse.trim() || 'Sorry, I had trouble responding just now.';
 
-    console.log('[Groq] Response received.', { chars: cleanResponse.length });
+    console.log('[B.AI] Response received.', { chars: cleanResponse.length });
     console.log('[AI] response ready');
 
     chatHistory.push({ role: 'user', content: userMessage }, { role: 'assistant', content: cleanResponse });
 
-    // Auto-trigger expression based on response
     const expr = detectExpression(cleanResponse);
     if (expr) avatarPlayExpression(expr);
 
     if (!isRealtimeTtsEnabled()) {
-      await stopThinkingState();
+      setAppState('idle', 'auto');
+      avatarPlayIdle();
       replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
       setStatus('Text-only mode.');
       setChatBusy(false);
@@ -778,8 +637,8 @@ async function requestGroqResponse(userMessage) {
     setStatus(thinkingConfig.message);
 
     try {
-      const audioData = await prepareKokoroAudio(cleanResponse);
-      await stopThinkingState();
+      const audioData = await prepareSupertonicAudio(cleanResponse);
+      setAppState('idle', 'auto'); // will transition to speaking via audio 'play' event
       replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
       setChatBusy(false);
       if (audioData) {
@@ -788,17 +647,19 @@ async function requestGroqResponse(userMessage) {
       }
     } catch (ttsError) {
       console.warn('[TTS] failed, fallback to text-only', ttsError);
-      await stopThinkingState();
+      setAppState('idle', 'auto');
+      avatarPlayIdle();
       replaceThinkingMessageWithFinal(thinkingMessage, cleanResponse);
       setStatus('Text-only mode. TTS unavailable.');
       setChatBusy(false);
       setTtsBusy(false);
     }
   } catch (error) {
-    console.error('[Groq] Request failed.', error);
-    await stopThinkingState();
+    console.error('[B.AI] Request failed.', error);
+    setAppState('idle', 'auto');
+    avatarPlayIdle();
     replaceThinkingMessageWithFinal(thinkingMessage, 'Sorry, I had trouble thinking for a moment. Please try again.');
-    setStatus('Groq request failed. Check the console for details.');
+    setStatus('B.AI request failed. Check the console for details.');
     setChatBusy(false);
   }
 }
@@ -809,22 +670,34 @@ async function handleTtsSubmit(event) {
   const text = ttsInput.value.trim();
   ttsInput.value = '';
   if (await handleMusicIntent(text)) return;
-  await requestGroqResponse(text);
+  await requestBaiResponse(text);
 }
 
-function handlePoseButtonClick(event) {
-  const button = event.currentTarget;
-  const poseName = button?.dataset?.pose;
-  if (!poseName) return;
-  void playPoseAnimation(poseName);
+// -------------------------------------------------
+// Manual test button handlers
+// -------------------------------------------------
+function handleThinkingBtnClick() {
+  if (manualTalking) return; // talking has priority
+  const newState = !manualThinking;
+  setThinking(newState, 'manual');
 }
 
+function handleTalkingBtnClick() {
+  const newState = !manualTalking;
+  setTalking(newState, 'manual');
+}
+
+// -------------------------------------------------
+// Initialization
+// -------------------------------------------------
 if (ttsForm) ttsForm.addEventListener('submit', handleTtsSubmit);
-poseButtons.forEach((button) => { button.addEventListener('click', handlePoseButtonClick); });
+if (thinkingBtn) thinkingBtn.addEventListener('click', handleThinkingBtnClick);
+if (talkingBtn) talkingBtn.addEventListener('click', handleTalkingBtnClick);
 
 ensurePersonalityLoaded();
 ensureEnvLoaded();
-syncPoseButtonsEnabled();
+updateUiBusy();
+syncTestButtons();
 
 // When haruAvatar module signals it's ready, make sure we're in idle state.
 document.addEventListener('avatar3d:ready', () => {

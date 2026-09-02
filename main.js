@@ -1,16 +1,17 @@
 const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
+const { spawn } = require("child_process");
 const musicController = require("./src/main/musicController");
 
 // Load environment variables from .env in the project root.
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const DEFAULT_TTS_CONFIG = {
-  enabled: false,
-  engine: "kokoro",
-  serverUrl: "http://127.0.0.1:5005",
-  fallbackToTextOnly: true,
+  enabled: true,
+  engine: "supertonic",
+  serverUrl: "http://127.0.0.1:7788",
+  fallbackToTextOnly: false,
 };
 
 const DEFAULT_THINKING_CONFIG = {
@@ -23,11 +24,18 @@ const DEFAULT_THINKING_CONFIG = {
 const TTS_OUTPUT_DIR = path.resolve(__dirname, "local-tts", "output");
 const TTS_OUTPUT_MAX_AGE_MS = 60 * 60 * 1000;
 
+// Supertonic server management
+let supertonicProcess = null;
+let supertonicServerReady = false;
+let supertonicStartPromise = null;
+const SUPERTONIC_HOST = process.env.SUPERTONIC_HOST || "127.0.0.1";
+const SUPERTONIC_PORT = parseInt(process.env.SUPERTONIC_PORT || "7788", 10);
+const SUPERTONIC_URL = `http://${SUPERTONIC_HOST}:${SUPERTONIC_PORT}`;
+
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || value === "") {
     return fallback;
   }
-
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
@@ -44,7 +52,6 @@ function buildLocalTtsOutputPath(filename) {
   if (!filename) {
     return "";
   }
-
   return path.join(TTS_OUTPUT_DIR, path.basename(filename));
 }
 
@@ -57,7 +64,6 @@ function isPathInsideTtsOutput(targetPath) {
 function withTimeout(options = {}, timeoutMs = 1500) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   return {
     options: { ...options, signal: controller.signal },
     clear: () => clearTimeout(timeout),
@@ -79,18 +85,12 @@ async function loadAppConfig() {
 
   const fileTts = fileConfig.tts || {};
   const fileThinking = fileConfig.thinking || {};
-  const envServerUrl = process.env.KOKORO_TTS_SERVER_URL || process.env.KOKORO_TTS_URL;
-
-  // TTS_PROVIDER env var overrides config file engine setting.
-  const resolvedEngine = (process.env.TTS_PROVIDER || fileTts.engine || DEFAULT_TTS_CONFIG.engine)
-    .trim()
-    .toLowerCase();
 
   return {
     tts: {
       enabled: parseBoolean(process.env.TTS_ENABLED, fileTts.enabled ?? DEFAULT_TTS_CONFIG.enabled),
-      engine: resolvedEngine,
-      serverUrl: normalizeServerUrl(envServerUrl || fileTts.serverUrl || DEFAULT_TTS_CONFIG.serverUrl),
+      engine: (process.env.TTS_PROVIDER || fileTts.engine || DEFAULT_TTS_CONFIG.engine).trim().toLowerCase(),
+      serverUrl: normalizeServerUrl(process.env.SUPERTONIC_URL || fileTts.serverUrl || DEFAULT_TTS_CONFIG.serverUrl),
       fallbackToTextOnly: parseBoolean(
         process.env.TTS_FALLBACK_TO_TEXT_ONLY,
         fileTts.fallbackToTextOnly ?? DEFAULT_TTS_CONFIG.fallbackToTextOnly,
@@ -108,7 +108,6 @@ async function loadAppConfig() {
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const request = withTimeout(options, timeoutMs);
-
   try {
     return await fetch(url, request.options);
   } finally {
@@ -116,39 +115,143 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function deleteTempTtsOutputFile(inputPath) {
-  if (!inputPath || typeof inputPath !== "string") {
-    return { deleted: false, reason: "missing-path" };
+// --- Supertonic Server Management ---
+
+async function startSupertonicServer() {
+  if (supertonicProcess) {
+    console.log("[Supertonic] Server process already running");
+    return;
   }
 
-  const targetPath = path.resolve(inputPath);
-  const outputDirPath = path.resolve(TTS_OUTPUT_DIR);
-
-  if (!isPathInsideTtsOutput(targetPath)) {
-    console.warn("[TTS] refused to delete path outside output dir", targetPath);
-    return { deleted: false, reason: "outside-output-dir" };
+  const pythonExe = findPythonExecutable();
+  if (!pythonExe) {
+    throw new Error("[Supertonic] Python executable not found. Please ensure Python is installed.");
   }
 
-  try {
-    const outputDirRealPath = await fs.realpath(outputDirPath);
-    const targetRealPath = await fs.realpath(targetPath);
-    if (!targetRealPath.startsWith(`${outputDirRealPath}${path.sep}`)) {
-      console.warn("[TTS] refused to delete path outside output dir", targetRealPath);
-      return { deleted: false, reason: "outside-output-dir" };
+  const serverScript = path.join(__dirname, "local-tts", "supertonic_server.py");
+  const env = {
+    ...process.env,
+    SUPERTONIC_HOST,
+    SUPERTONIC_PORT: String(SUPERTONIC_PORT),
+    SUPERTONIC_MODEL: process.env.SUPERTONIC_MODEL || "supertonic-3",
+    SUPERTONIC_VOICE: process.env.SUPERTONIC_VOICE || "F1",
+    SUPERTONIC_LANG: process.env.SUPERTONIC_LANG || "id",
+    SUPERTONIC_STEPS: process.env.SUPERTONIC_STEPS || "8",
+    SUPERTONIC_SPEED: process.env.SUPERTONIC_SPEED || "1.05",
+  };
+
+  console.log("[Supertonic] Starting server...");
+  console.log("[Supertonic] Using Python:", pythonExe);
+  console.log("[Supertonic] Server URL:", SUPERTONIC_URL);
+
+  supertonicProcess = spawn(pythonExe, [serverScript], {
+    env,
+    cwd: path.join(__dirname, "local-tts"),
+    windowsHide: true,
+  });
+
+  supertonicProcess.stdout?.on("data", (data) => {
+    const msg = data.toString().trim();
+    if (msg) console.log("[Supertonic:stdout]", msg);
+  });
+
+  supertonicProcess.stderr?.on("data", (data) => {
+    const msg = data.toString().trim();
+    if (msg) console.warn("[Supertonic:stderr]", msg);
+  });
+
+  supertonicProcess.on("close", (code) => {
+    console.log("[Supertonic] Server process exited with code:", code);
+    supertonicProcess = null;
+    supertonicServerReady = false;
+  });
+
+  supertonicProcess.on("error", (err) => {
+    console.error("[Supertonic] Process error:", err);
+    supertonicProcess = null;
+    supertonicServerReady = false;
+  });
+
+  // Wait for server to be ready
+  await waitForSupertonicReady();
+}
+
+function findPythonExecutable() {
+  // Try common Python executables on Windows
+  const candidates = [
+    path.join(__dirname, ".venv", "Scripts", "python.exe"),
+    "python",
+    "python3",
+    "py",
+  ];
+
+  for (const cmd of candidates) {
+    try {
+      // We can't easily test without spawning, so just return the venv one if it exists
+      if (cmd.includes(".venv")) {
+        if (require("fs").existsSync(cmd)) {
+          return cmd;
+        }
+      } else {
+        // For system python, we'll just try it
+        return cmd;
+      }
+    } catch (e) {
+      // continue
     }
-
-    await fs.unlink(targetPath);
-    console.log("[TTS] deleted temp output:", targetPath);
-    return { deleted: true };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      console.log("[TTS] temp output already missing:", targetPath);
-      return { deleted: false, missing: true };
-    }
-
-    console.warn("[TTS] failed to delete temp output:", targetPath, error);
-    return { deleted: false, reason: error.message };
   }
+  return null;
+}
+
+async function waitForSupertonicReady(timeoutMs = 120000) {
+  const startTime = Date.now();
+  const healthUrl = `${SUPERTONIC_URL}/health`;
+
+  console.log("[Supertonic] Waiting for server to be ready...");
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await fetch(healthUrl, { method: "GET" });
+      if (response.ok) {
+        const data = await response.json();
+        console.log("[Supertonic] Server ready:", data);
+        supertonicServerReady = true;
+        return;
+      }
+    } catch (e) {
+      // Server not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  throw new Error(`[Supertonic] Server did not become ready within ${timeoutMs}ms`);
+}
+
+async function ensureSupertonicReady() {
+  if (supertonicServerReady && supertonicProcess) {
+    // Quick health check
+    try {
+      const response = await fetch(`${SUPERTONIC_URL}/health`, { method: "GET" });
+      if (response.ok) {
+        return;
+      }
+    } catch (e) {
+      // Fall through to restart
+    }
+  }
+
+  if (supertonicStartPromise) {
+    await supertonicStartPromise;
+    return;
+  }
+
+  supertonicStartPromise = startSupertonicServer().catch((err) => {
+    supertonicStartPromise = null;
+    throw err;
+  });
+
+  await supertonicStartPromise;
+  supertonicStartPromise = null;
 }
 
 async function cleanupOldTtsOutputFiles() {
@@ -187,9 +290,42 @@ async function cleanupOldTtsOutputFiles() {
   console.log("[TTS] cleanup old output files:", deletedCount, "deleted");
 }
 
+async function deleteTempTtsOutputFile(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") {
+    return { deleted: false, reason: "missing-path" };
+  }
+
+  const targetPath = path.resolve(inputPath);
+  const outputDirPath = path.resolve(TTS_OUTPUT_DIR);
+
+  if (!isPathInsideTtsOutput(targetPath)) {
+    console.warn("[TTS] refused to delete path outside output dir", targetPath);
+    return { deleted: false, reason: "outside-output-dir" };
+  }
+
+  try {
+    const outputDirRealPath = await fs.realpath(outputDirPath);
+    const targetRealPath = await fs.realpath(targetPath);
+    if (!targetRealPath.startsWith(`${outputDirRealPath}${path.sep}`)) {
+      console.warn("[TTS] refused to delete path outside output dir", targetRealPath);
+      return { deleted: false, reason: "outside-output-dir" };
+    }
+
+    await fs.unlink(targetPath);
+    console.log("[TTS] deleted temp output:", targetPath);
+    return { deleted: true };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      console.log("[TTS] temp output already missing:", targetPath);
+      return { deleted: false, missing: true };
+    }
+    console.warn("[TTS] failed to delete temp output:", targetPath, error);
+    return { deleted: false, reason: error.message };
+  }
+}
+
 // Create the main application window.
 function createWindow() {
-  // Remove the native menu bar for a cleaner desktop companion feel.
   Menu.setApplicationMenu(null);
 
   const win = new BrowserWindow({
@@ -228,68 +364,83 @@ function createWindow() {
 app.whenReady().then(async () => {
   await cleanupOldTtsOutputFiles();
   createWindow();
+
+  // Initialize Supertonic server after window is created
+  try {
+    await ensureSupertonicReady();
+    console.log("[Supertonic] TTS system ready");
+  } catch (err) {
+    console.error("[Supertonic] Failed to start:", err);
+  }
 });
 
-// Quit on all windows closed (except on macOS).
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-// Re-create a window on macOS when the dock icon is clicked.
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
-// Groq requests are handled in the main process to avoid preload failures.
-ipcMain.handle("groq:generateResponse", async (_event, payload = {}) => {
-  const { apiKey, model, systemPrompt, history, message } = payload;
+// Cleanup on app quit
+app.on("before-quit", async () => {
+  console.log("[Supertonic] App quitting, cleaning up...");
+  if (supertonicProcess) {
+    supertonicProcess.kill();
+    supertonicProcess = null;
+  }
+  // Clean up any remaining temp audio files
+  await cleanupOldTtsOutputFiles();
+});
+
+// B.AI requests
+ipcMain.handle("bai:generateResponse", async (_event, payload = {}) => {
+  const { apiKey, baseUrl, model, systemPrompt, history, message } = payload;
 
   try {
     if (!apiKey) {
-      throw new Error("Missing Groq API key.");
+      throw new Error("Missing B.AI API key.");
     }
 
-    // Load the Groq SDK here so preload stays lightweight and safe.
-    const Groq = require("groq-sdk");
-
-    const groq = new Groq({ apiKey });
-
-    // Build the messages array for the Groq chat completion.
-    // System prompt goes first, then conversation history, then user message.
     const messages = [];
-
-    // Add system prompt as the first message.
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
     }
-
-    // Append conversation history.
-    // History uses { role, content } format matching OpenAI/Groq convention.
     if (Array.isArray(history)) {
       messages.push(...history);
     }
-
-    // Append the new user message.
     if (message) {
       messages.push({ role: "user", content: message });
     }
 
-    // Send the chat completion request to Groq.
-    const chatCompletion = await groq.chat.completions.create({
-      messages,
-      model: model || "llama-3.1-8b-instant",
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 2048,
+        stream: false,
+      }),
     });
 
-    // Extract the response text from the first choice.
-    const responseText = chatCompletion?.choices?.[0]?.message?.content || "";
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`B.AI HTTP ${response.status}: ${errorText}`);
+    }
 
-    return responseText;
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "";
   } catch (error) {
-    console.error("[Groq] Main process error:", error);
+    console.error("[B.AI] Main process error:", error);
     throw error;
   }
 });
@@ -310,7 +461,9 @@ ipcMain.handle("env:getAll", async () => {
   const appConfig = await loadAppConfig();
 
   return {
-    GROQ_API_KEY: process.env.GROQ_API_KEY || "",
+    BAI_API_KEY: process.env.BAI_API_KEY || "",
+    BAI_BASE_URL: process.env.BAI_BASE_URL || "https://api.b.ai/v1",
+    BAI_MODEL: process.env.BAI_MODEL || "mimo-v2.5",
     WEATHERSTACK_API_KEY: process.env.WEATHERSTACK_API_KEY || "",
     CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || "",
     TTS_CONFIG: appConfig.tts,
@@ -318,7 +471,7 @@ ipcMain.handle("env:getAll", async () => {
   };
 });
 
-// Calendarific holidays fetch — retrieves public holidays for a given country and year.
+// Calendarific holidays fetch
 ipcMain.handle("calendar:fetchHolidays", async (_event, payload = {}) => {
   const { apiKey, country = "ID", year, month } = payload;
 
@@ -357,7 +510,7 @@ ipcMain.handle("calendar:fetchHolidays", async (_event, payload = {}) => {
   }
 });
 
-// Weatherstack current weather fetch — runs in main process to avoid CORS issues.
+// Weatherstack current weather fetch
 ipcMain.handle("weather:fetch", async (_event, payload = {}) => {
   const { city, apiKey } = payload;
 
@@ -369,7 +522,6 @@ ipcMain.handle("weather:fetch", async (_event, payload = {}) => {
     throw new Error("[Weather] Missing or invalid city name.");
   }
 
-  // Weatherstack free tier only supports HTTP, not HTTPS.
   const url = `http://api.weatherstack.com/current?access_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(city.trim())}&units=m`;
 
   try {
@@ -391,15 +543,14 @@ ipcMain.handle("weather:fetch", async (_event, payload = {}) => {
   }
 });
 
-// Local TTS handler (Kokoro / Piper).
-// Expects a local TTS server that returns WAV audio bytes.
-// IPC channel name kept as "tts:kokoroSynthesize" for backward compatibility.
-ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
+// Supertonic TTS handler
+ipcMain.handle("tts:supertonicSynthesize", async (_event, payload = {}) => {
   const {
     text,
-    voice = "af_heart",
-    speed = 1.0,
-    language = "id",
+    voice = "F1",
+    lang = "id",
+    steps = 8,
+    speed = 1.05,
   } = payload;
 
   try {
@@ -414,23 +565,18 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
       throw new Error("[TTS] Realtime TTS is disabled.");
     }
 
-    const activeEngine = ttsConfig.engine || "kokoro";
-    const healthUrl = buildTtsUrl(ttsConfig.serverUrl, "/health");
-    const endpoint = buildTtsUrl(ttsConfig.serverUrl, "/tts");
+    // Ensure Supertonic server is ready
+    await ensureSupertonicReady();
 
-    console.log(`[TTS] Synthesizing locally via ${activeEngine}.`, {
+    const endpoint = `${SUPERTONIC_URL}/v1/tts`;
+
+    console.log("[Supertonic] Synthesizing...", {
       textLength: text.length,
       voice,
+      lang,
+      steps,
       speed,
-      language,
-      engine: activeEngine,
-      serverUrl: ttsConfig.serverUrl,
     });
-
-    const healthResponse = await fetchWithTimeout(healthUrl, {}, 1500);
-    if (!healthResponse.ok) {
-      throw new Error(`[TTS] Health check returned ${healthResponse.status}.`);
-    }
 
     const response = await fetchWithTimeout(endpoint, {
       method: "POST",
@@ -438,8 +584,8 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
         "Content-Type": "application/json",
         Accept: "audio/wav",
       },
-      body: JSON.stringify({ text, voice, speed, language, engine: activeEngine }),
-    }, 30000);
+      body: JSON.stringify({ text, voice, lang, steps, speed }),
+    }, 60000); // Longer timeout for synthesis
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
@@ -453,19 +599,17 @@ ipcMain.handle("tts:kokoroSynthesize", async (_event, payload = {}) => {
     const tempOutputPath = buildLocalTtsOutputPath(outputFilename);
 
     if (tempOutputPath) {
-      console.log("[TTS] generated output:", tempOutputPath);
+      console.log("[Supertonic] Generated output:", tempOutputPath);
     }
 
-    console.log(`[TTS] Audio ready (${activeEngine}).`, { bytes: audioBuffer.length });
+    console.log("[Supertonic] Audio ready.", { bytes: audioBuffer.length });
 
-    // Convert Buffer to a plain array so it can travel over Electron IPC.
-    // The renderer reconstructs it as a Uint8Array for audio playback.
     return {
       audioBytes: Array.from(audioBuffer),
       tempOutputPath,
     };
   } catch (error) {
-    console.warn("[TTS] Synthesis unavailable:", error);
+    console.warn("[Supertonic] Synthesis unavailable:", error);
     throw error;
   }
 });
@@ -479,10 +623,7 @@ ipcMain.handle("tts:deleteOutputFile", async (_event, payload = {}) => {
   }
 });
 
-// -------------------------------------------------
 // Yui Music Controller IPC handlers.
-// Automates YouTube Music opening and playback using Playwright.
-// -------------------------------------------------
 ipcMain.handle("music:open-youtube", async () => {
   await musicController.openYouTubeMusic();
 });

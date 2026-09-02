@@ -1,9 +1,9 @@
 {
   "tts": {
-    "enabled": false,
-    "engine": "kokoro",
-    "serverUrl": "http://127.0.0.1:5005",
-    "fallbackToTextOnly": true
+    "enabled": true,
+    "engine": "supertonic",
+    "serverUrl": "http://127.0.0.1:7788",
+    "fallbackToTextOnly": false
   },
   "thinking": {
     "enabled": true,

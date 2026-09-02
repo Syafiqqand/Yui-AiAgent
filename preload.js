@@ -1,10 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-// Expose a small Groq helper to the renderer with a safe API surface.
-// The actual SDK runs in the main process to keep preload stable.
-contextBridge.exposeInMainWorld("groq", {
+// Expose a small B.AI helper to the renderer with a safe API surface.
+// The actual HTTP request runs in the main process to keep preload stable.
+contextBridge.exposeInMainWorld("bai", {
   generateResponse: (payload) =>
-    ipcRenderer.invoke("groq:generateResponse", payload),
+    ipcRenderer.invoke("bai:generateResponse", payload),
 });
 
 // Load the personality prompt from a local Markdown file.
@@ -17,9 +17,9 @@ contextBridge.exposeInMainWorld("env", {
   getAll: () => ipcRenderer.invoke("env:getAll"),
 });
 
-// Local Kokoro TTS bridge.
-contextBridge.exposeInMainWorld("kokoroTts", {
-  synthesize: (payload) => ipcRenderer.invoke("tts:kokoroSynthesize", payload),
+// Supertonic TTS bridge.
+contextBridge.exposeInMainWorld("supertonicTts", {
+  synthesize: (payload) => ipcRenderer.invoke("tts:supertonicSynthesize", payload),
   deleteOutputFile: (payload) => ipcRenderer.invoke("tts:deleteOutputFile", payload),
 });
 
@@ -36,6 +36,5 @@ contextBridge.exposeInMainWorld("calendar", {
 // Yui Music controller bridge — Playwright automated YouTube Music.
 contextBridge.exposeInMainWorld("yuiMusic", {
   openYouTube: () => ipcRenderer.invoke("music:open-youtube"),
-  playYouTube: (query) => ipcRenderer.invoke("music:play-youtube", { query }),
+  playYouTube: (query) => ipcRenderer.invoke("music:play-youtube", { query}),
 });
-
